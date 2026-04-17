@@ -1,0 +1,28 @@
+[project]
+name = "academic-tour-guide-backend"
+version = "0.1.0"
+description = "FastAPI backend for Academic Tour Guide."
+requires-python = ">=3.12"
+dependencies = [
+  "beautifulsoup4>=4.12.3",
+  "fastapi>=0.115.0",
+  "httpx>=0.27.2",
+  "psycopg[binary]>=3.2.3",
+  "pydantic>=2.9.2",
+  "python-dateutil>=2.9.0",
+  "sqlalchemy>=2.0.36",
+  "uvicorn>=0.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.3",
+]
+
+[build-system]
+requires = ["setuptools>=75.1.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

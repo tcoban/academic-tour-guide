@@ -1,0 +1,11 @@
+.next/
+__pycache__/
+.pytest_cache/
+.venv/
+*.egg-info/
+*.tsbuildinfo
+pytest-cache-files-*
+backend/.coverage
+backend/academic_tour_guide.db
+backend/htmlcov/
+node_modules/
