@@ -53,16 +53,51 @@ def _first_attr(root, selectors: list[str], attribute: str) -> str | None:
     return None
 
 
-def _parse_datetime(value: str, fallback_tz: str = settings.default_timezone) -> datetime:
+def _parse_datetime(value: str, fallback_tz: str = settings.default_timezone, *, dayfirst: bool = False) -> datetime:
     parsed = date_parser.parse(
         value,
         fuzzy=True,
-        dayfirst=False,
+        dayfirst=dayfirst,
         tzinfos={"CET": ZoneInfo(fallback_tz), "CEST": ZoneInfo(fallback_tz)},
     )
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=ZoneInfo(fallback_tz))
     return parsed
+
+
+def _clean_speaker_name(speaker_name: str, affiliation: str | None) -> str:
+    cleaned = " ".join(speaker_name.split())
+    if affiliation:
+        cleaned = cleaned.replace(affiliation, "").strip(" ,;-")
+    if "," in cleaned:
+        cleaned = cleaned.split(",", 1)[0].strip()
+    return cleaned
+
+
+def _normalize_speaker(speaker_name: str, affiliation: str | None) -> tuple[str, str | None]:
+    raw_speaker_name = " ".join(speaker_name.split())
+    normalized_affiliation = affiliation
+    if normalized_affiliation is None and "," in raw_speaker_name:
+        raw_speaker_name, normalized_affiliation = [part.strip() for part in raw_speaker_name.split(",", 1)]
+    if normalized_affiliation is None and raw_speaker_name.endswith(")") and " (" in raw_speaker_name:
+        raw_speaker_name, normalized_affiliation = raw_speaker_name.rsplit(" (", 1)
+        normalized_affiliation = normalized_affiliation.rstrip(")")
+    return _clean_speaker_name(raw_speaker_name, normalized_affiliation), normalized_affiliation
+
+
+def _derive_title_and_speaker(title: str, speaker_name: str | None) -> tuple[str, str | None]:
+    if " - " not in title:
+        return title, speaker_name
+    possible_speaker, possible_title = [part.strip() for part in title.split(" - ", 1)]
+    if speaker_name is None:
+        return possible_title or title, possible_speaker or None
+    if possible_speaker.lower() in speaker_name.lower() or speaker_name.lower() in possible_speaker.lower():
+        return possible_title or title, speaker_name
+    return title, speaker_name
+
+
+def _uses_dotted_european_date(value: str) -> bool:
+    return bool(re.search(r"\b\d{1,2}\.\d{1,2}\.\d{4}\b", value))
 
 
 def _build_source_hash(*parts: str) -> str:
@@ -81,6 +116,7 @@ class SourceConfig:
     affiliation_selectors: list[str]
     date_selectors: list[str]
     link_selectors: list[str]
+    text_fallback: str | None = None
 
 
 class GenericEventSource:
@@ -112,16 +148,24 @@ class GenericEventSource:
             if not speaker_name or not date_text or not title:
                 continue
 
-            starts_at = _parse_datetime(date_text)
+            try:
+                starts_at = _parse_datetime(date_text, dayfirst=_uses_dotted_european_date(date_text))
+            except (TypeError, ValueError):
+                continue
             ends_at = None
             duration_text = card.get("data-end")
             if duration_text:
-                ends_at = _parse_datetime(duration_text)
+                try:
+                    ends_at = _parse_datetime(duration_text)
+                except (TypeError, ValueError):
+                    ends_at = None
             link = _first_attr(card, self.config.link_selectors, "href") or raw_page.url
             if link.startswith("/"):
                 parsed = httpx.URL(raw_page.url)
                 link = str(parsed.join(link))
             affiliation = _first_match(card, self.config.affiliation_selectors)
+            speaker_name, affiliation = _normalize_speaker(str(speaker_name), affiliation)
+            title, speaker_name = _derive_title_and_speaker(title, speaker_name)
             signature = (title, speaker_name, starts_at.isoformat(), link)
             if signature in seen_event_keys:
                 continue
@@ -138,6 +182,52 @@ class GenericEventSource:
                     ends_at=ends_at,
                     url=link,
                     raw_payload={"discovered_from": raw_page.url},
+                )
+            )
+        if not events and self.config.text_fallback == "dated_speaker_lines":
+            events.extend(self._extract_dated_speaker_lines(raw_page, soup, seen_event_keys))
+        return events
+
+    def _extract_dated_speaker_lines(
+        self,
+        raw_page: RawPage,
+        soup: BeautifulSoup,
+        seen_event_keys: set[tuple[str, str, str, str]],
+    ) -> list[ExtractedTalkEvent]:
+        lines = [line.strip() for line in soup.get_text("\n", strip=True).splitlines() if line.strip()]
+        pattern = re.compile(r"^(?P<date>\d{2}\.\d{2}\.\d{4})\s+(?P<speaker>[^-]+?)\s+-\s+(?P<affiliation>.+)$")
+        events: list[ExtractedTalkEvent] = []
+        for index, line in enumerate(lines):
+            match = pattern.match(line)
+            if not match:
+                continue
+            speaker_name = _clean_speaker_name(match.group("speaker"), None)
+            affiliation = match.group("affiliation").strip()
+            try:
+                starts_at = _parse_datetime(match.group("date"), dayfirst=True)
+            except (TypeError, ValueError):
+                continue
+            title = f"Seminar with {speaker_name}"
+            if index + 1 < len(lines) and not re.match(r"^\d{2}\.\d{2}\.\d{4}", lines[index + 1]):
+                possible_title = lines[index + 1].strip().strip('"')
+                if possible_title and "term " not in possible_title.lower():
+                    title = possible_title
+            signature = (title, speaker_name, starts_at.isoformat(), raw_page.url)
+            if signature in seen_event_keys:
+                continue
+            seen_event_keys.add(signature)
+            events.append(
+                ExtractedTalkEvent(
+                    source_name=self.name,
+                    title=title,
+                    speaker_name=speaker_name,
+                    speaker_affiliation=affiliation,
+                    city=self.config.city,
+                    country=self.config.country,
+                    starts_at=starts_at,
+                    ends_at=None,
+                    url=raw_page.url,
+                    raw_payload={"discovered_from": raw_page.url, "fallback": self.config.text_fallback},
                 )
             )
         return events
@@ -208,33 +298,33 @@ class KofHostCalendarAdapter:
 
 BOCCONI_SOURCE = SourceConfig(
     name="bocconi",
-    urls=["https://www.unibocconi.eu/events"],
+    urls=["https://economics.unibocconi.eu/events-research"],
     city="Milan",
     country="Italy",
-    card_selectors=[".event-card", ".seminar-card", "article[data-speaker]"],
-    title_selectors=["h3", "h2", ".event-title"],
-    speaker_selectors=["[data-speaker]", ".speaker", ".speaker-name"],
-    affiliation_selectors=[".affiliation", ".speaker-affiliation", ".institution"],
+    card_selectors=["article.node--event", ".views-row article", ".event-card", ".seminar-card", "article[data-speaker]"],
+    title_selectors=[".node__title", "h3", "h2", ".event-title"],
+    speaker_selectors=["[data-speaker]", ".event__speaker--speaker", ".speaker", ".speaker-name"],
+    affiliation_selectors=[".c-speaker__university", ".affiliation", ".speaker-affiliation", ".institution"],
     date_selectors=["time", ".event-date", "[data-date]"],
     link_selectors=["a[href]"],
 )
 
 MANNHEIM_SOURCE = SourceConfig(
     name="mannheim",
-    urls=["https://www.uni-mannheim.de/en/events/"],
+    urls=["https://www.vwl.uni-mannheim.de/forschung/forschungsseminare/mannheim-applied-seminar/"],
     city="Mannheim",
     country="Germany",
-    card_selectors=[".seminar-list__item", ".event-card", "article[data-speaker]"],
-    title_selectors=["h3", "h2", ".event-title"],
-    speaker_selectors=[".speaker", "[data-speaker]", ".speaker-name"],
+    card_selectors=["table tr", ".seminar-list__item", ".event-card", "article[data-speaker]"],
+    title_selectors=["td:nth-of-type(4)", "h3", "h2", ".event-title"],
+    speaker_selectors=["td:nth-of-type(3)", ".speaker", "[data-speaker]", ".speaker-name"],
     affiliation_selectors=[".affiliation", ".speaker-affiliation", ".institution"],
-    date_selectors=["time", ".date", ".event-date", "[data-date]"],
+    date_selectors=["td:nth-of-type(1)", "time", ".date", ".event-date", "[data-date]"],
     link_selectors=["a[href]"],
 )
 
 BONN_SOURCE = SourceConfig(
     name="bonn",
-    urls=["https://www.econ.uni-bonn.de/events"],
+    urls=["https://www.econ.uni-bonn.de/micro/en/seminars"],
     city="Bonn",
     country="Germany",
     card_selectors=[".event-item", ".seminar-item", "article[data-speaker]"],
@@ -243,6 +333,7 @@ BONN_SOURCE = SourceConfig(
     affiliation_selectors=[".affiliation", ".speaker-affiliation", ".institution"],
     date_selectors=["time", ".date", ".event-date", "[data-date]"],
     link_selectors=["a[href]"],
+    text_fallback="dated_speaker_lines",
 )
 
 ECB_SOURCE = SourceConfig(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 
 from app.db.session import SessionLocal, init_db
+from app.services.audit import SourceAuditor
 from app.services.availability import AvailabilityBuilder
 from app.services.clustering import TripClusterer
 from app.services.enrichment import BiographerPipeline
@@ -12,6 +13,15 @@ from app.services.seed import seed_demo_data, seed_reference_data
 
 
 def run(command: str) -> None:
+    if command == "audit-sources":
+        for result in SourceAuditor().audit():
+            print(f"{result.source_name}: {result.status} pages={result.page_count} events={result.event_count}")
+            if result.error:
+                print(f"  error: {result.error}")
+            for sample in result.samples:
+                print(f"  sample: {sample}")
+        return
+
     init_db()
     with SessionLocal() as session:
         seed_reference_data(session)
@@ -36,7 +46,10 @@ def run(command: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Academic Tour Guide worker")
-    parser.add_argument("command", choices=["ingest", "sync-host", "repec-sync", "biographer-refresh", "seed-demo", "rebuild"])
+    parser.add_argument(
+        "command",
+        choices=["ingest", "sync-host", "repec-sync", "biographer-refresh", "seed-demo", "rebuild", "audit-sources"],
+    )
     args = parser.parse_args()
     run(args.command)
 

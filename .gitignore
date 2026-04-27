@@ -7,5 +7,6 @@ __pycache__/
 pytest-cache-files-*
 backend/.coverage
 backend/academic_tour_guide.db
+backend/*.bak
 backend/htmlcov/
 node_modules/

@@ -52,6 +52,7 @@ From `backend/`:
 - `python -m app.worker biographer-refresh`
 - `python -m app.worker seed-demo`
 - `python -m app.worker rebuild`
+- `python -m app.worker audit-sources`
 
 ## Demo Data
 
@@ -63,6 +64,8 @@ python -m app.worker seed-demo
 ```
 
 This creates a small deterministic dataset with approved facts, pending fact candidates, source documents, RePEc identities, trip clusters, and KOF seminar availability.
+
+If your local `backend/academic_tour_guide.db` was created before migrations were added, move it aside first and rerun the two commands above. The SQLite database is local-only and ignored by Git.
 
 ## Phase 2 Biographer Flow
 
