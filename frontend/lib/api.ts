@@ -6,6 +6,55 @@ export type ResearcherFact = {
   source_url?: string | null;
   evidence_snippet?: string | null;
   verified: boolean;
+  approval_origin: string;
+};
+
+export type FactCandidate = {
+  id: string;
+  researcher_id: string;
+  source_document_id?: string | null;
+  fact_type: string;
+  value: string;
+  confidence: number;
+  evidence_snippet?: string | null;
+  source_url?: string | null;
+  status: string;
+  origin: string;
+  review_note?: string | null;
+  reviewed_at?: string | null;
+  created_at: string;
+};
+
+export type ReviewFact = FactCandidate & {
+  researcher_name: string;
+};
+
+export type ResearcherIdentity = {
+  id: string;
+  provider: string;
+  external_id: string;
+  canonical_name: string;
+  profile_url?: string | null;
+  match_confidence: number;
+  ranking_percentile?: number | null;
+  ranking_label?: string | null;
+  metadata_json: Record<string, unknown>;
+  synced_at: string;
+};
+
+export type SourceDocument = {
+  id: string;
+  researcher_id: string;
+  url: string;
+  discovered_from_url?: string | null;
+  content_type?: string | null;
+  checksum?: string | null;
+  fetch_status: string;
+  http_status?: number | null;
+  title?: string | null;
+  metadata_json: Record<string, unknown>;
+  fetched_at?: string | null;
+  created_at: string;
 };
 
 export type Researcher = {
@@ -45,6 +94,7 @@ export type TripCluster = {
     source_name: string;
   }>;
   opportunity_score: number;
+  uses_unreviewed_evidence: boolean;
   rationale: Array<{ label: string; points: number; detail: string }>;
 };
 
@@ -69,6 +119,9 @@ export type OpenSeminarWindow = {
 export type ResearcherDetail = Researcher & {
   talk_events: TalkEvent[];
   trip_clusters: TripCluster[];
+  identities: ResearcherIdentity[];
+  documents: SourceDocument[];
+  fact_candidates: FactCandidate[];
 };
 
 export type DailyCatch = {
@@ -122,7 +175,16 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
     cache: "no-store",
   });
   if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (payload.detail) {
+        detail = payload.detail;
+      }
+    } catch {
+      // Fall back to the generic status text when the response body is not JSON.
+    }
+    throw new Error(detail);
   }
   return (await response.json()) as T;
 }
@@ -143,6 +205,14 @@ export function getResearcher(id: string): Promise<ResearcherDetail> {
   return getJson<ResearcherDetail>(`/researchers/${id}`);
 }
 
+export function getResearcherDocuments(id: string): Promise<SourceDocument[]> {
+  return getJson<SourceDocument[]>(`/researchers/${id}/documents`);
+}
+
+export function getReviewQueue(): Promise<ReviewFact[]> {
+  return getJson<ReviewFact[]>("/review/facts?status=pending");
+}
+
 export function getSeminarTemplates(): Promise<SeminarSlotTemplate[]> {
   return getJson<SeminarSlotTemplate[]>("/seminar/templates");
 }
@@ -159,6 +229,20 @@ export async function createDraft(researcherId: string, tripClusterId: string): 
   return getJson<OutreachDraft>("/outreach-drafts", {
     method: "POST",
     body: JSON.stringify({ researcher_id: researcherId, trip_cluster_id: tripClusterId }),
+  });
+}
+
+export async function approveFactCandidate(candidateId: string, mergedValue?: string): Promise<FactCandidate> {
+  return getJson<FactCandidate>(`/review/facts/${candidateId}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ merged_value: mergedValue ?? null }),
+  });
+}
+
+export async function rejectFactCandidate(candidateId: string, note?: string): Promise<FactCandidate> {
+  return getJson<FactCandidate>(`/review/facts/${candidateId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ note: note ?? null }),
   });
 }
 
@@ -187,4 +271,3 @@ export async function createOverride(payload: {
     body: JSON.stringify(payload),
   });
 }
-

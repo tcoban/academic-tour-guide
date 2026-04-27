@@ -6,7 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.entities import OpenSeminarWindow, OutreachDraft, Researcher, TripCluster
-from app.services.enrichment import best_fact
+from app.services.enrichment import best_fact, best_fact_candidate
+
+
+class ReviewRequiredError(RuntimeError):
+    pass
 
 
 class DraftGenerator:
@@ -17,29 +21,23 @@ class DraftGenerator:
         phd_fact = best_fact(researcher, "phd_institution")
         nationality_fact = best_fact(researcher, "nationality")
         if not phd_fact or phd_fact.confidence < settings.evidence_confidence_threshold:
-            draft = OutreachDraft(
-                researcher_id=researcher.id,
-                trip_cluster_id=cluster.id,
-                subject=f"Blocked draft for {researcher.name}",
-                body="Draft generation is blocked until the PhD institution is confirmed with sufficient evidence.",
-                status="blocked",
-                blocked_reason="Missing PhD evidence",
+            pending_phd = best_fact_candidate(researcher, "phd_institution", statuses=("pending",))
+            if pending_phd:
+                raise ReviewRequiredError(
+                    f"Draft generation requires approval of the pending PhD institution evidence: {pending_phd.value}."
+                )
+            raise ReviewRequiredError(
+                "Draft generation requires an approved PhD institution fact before the biographic hook can be used."
             )
-            self.session.add(draft)
-            self.session.flush()
-            return draft
         if not nationality_fact or nationality_fact.confidence < settings.evidence_confidence_threshold:
-            draft = OutreachDraft(
-                researcher_id=researcher.id,
-                trip_cluster_id=cluster.id,
-                subject=f"Blocked draft for {researcher.name}",
-                body="Draft generation is blocked until nationality is confirmed with sufficient evidence.",
-                status="blocked",
-                blocked_reason="Missing nationality evidence",
+            pending_nationality = best_fact_candidate(researcher, "nationality", statuses=("pending",))
+            if pending_nationality:
+                raise ReviewRequiredError(
+                    f"Draft generation requires approval of the pending nationality evidence: {pending_nationality.value}."
+                )
+            raise ReviewRequiredError(
+                "Draft generation requires an approved nationality fact before the biographic hook can be used."
             )
-            self.session.add(draft)
-            self.session.flush()
-            return draft
 
         matching_window = self._best_window_for_cluster(cluster)
         hook = self._build_hook(researcher, cluster, phd_fact.value, nationality_fact.value)

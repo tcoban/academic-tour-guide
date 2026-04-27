@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.entities import Institution, OpenSeminarWindow, Researcher, TripCluster
-from app.services.enrichment import best_fact
+from app.services.enrichment import best_available_fact
 
 
 DEFAULT_COORDINATES: dict[str, tuple[float, float]] = {
@@ -83,18 +83,21 @@ class Scorer:
     def score_cluster(self, cluster: TripCluster, researcher: Researcher) -> ScoreResult:
         score = 0
         rationale: list[dict] = []
-        phd_fact = best_fact(researcher, "phd_institution")
-        nationality_fact = best_fact(researcher, "nationality")
+        uses_unreviewed_evidence = False
+        phd_fact = best_available_fact(researcher, "phd_institution")
+        nationality_fact = best_available_fact(researcher, "nationality")
         phd_distance = self._distance_to_zurich(phd_fact.value) if phd_fact else None
         if phd_distance is not None and phd_distance <= 300:
             score += 30
-            rationale.append({"label": "Alumni Loop", "points": 30, "detail": phd_fact.value})
+            rationale.append({"label": "Alumni Loop", "points": 30, "detail": self._fact_detail(phd_fact)})
+            uses_unreviewed_evidence = uses_unreviewed_evidence or not phd_fact.approved
 
         if nationality_fact and nationality_fact.value.lower() in {"german", "austrian", "swiss"} and is_us_institution(
             researcher.home_institution
         ):
             score += 25
-            rationale.append({"label": "DACH Link", "points": 25, "detail": nationality_fact.value})
+            rationale.append({"label": "DACH Link", "points": 25, "detail": self._fact_detail(nationality_fact)})
+            uses_unreviewed_evidence = uses_unreviewed_evidence or not nationality_fact.approved
 
         itinerary_cities = {item["city"].lower() for item in cluster.itinerary}
         if "milan" in itinerary_cities or "munich" in itinerary_cities:
@@ -109,7 +112,17 @@ class Scorer:
             score += 15
             rationale.append({"label": "Slot Fit", "points": 15, "detail": "An open KOF slot overlaps the trip window"})
 
+        if uses_unreviewed_evidence:
+            rationale.append(
+                {
+                    "label": "Review Flag",
+                    "points": 0,
+                    "detail": "One or more biographic signals are still pending human approval.",
+                }
+            )
+
         cluster.opportunity_score = score
+        cluster.uses_unreviewed_evidence = uses_unreviewed_evidence
         cluster.rationale = rationale
         self.session.add(cluster)
         return ScoreResult(score=score, rationale=rationale)
@@ -160,6 +173,12 @@ class Scorer:
             ):
                 return True
         return False
+
+    def _fact_detail(self, fact) -> str:
+        detail = fact.value
+        if not fact.approved:
+            detail += " (pending review)"
+        return detail
 
 
 def starts_tz(cluster: TripCluster):

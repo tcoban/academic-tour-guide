@@ -8,12 +8,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import session_dep
 from app.models.entities import (
+    FactCandidate,
     HostCalendarEvent,
     OpenSeminarWindow,
     OutreachDraft,
     Researcher,
     SeminarSlotOverride,
     SeminarSlotTemplate,
+    SourceDocument,
     TalkEvent,
     TripCluster,
 )
@@ -23,19 +25,26 @@ from app.schemas.api import (
     DraftCreate,
     DraftRead,
     EnrichRequest,
+    FactCandidateRead,
     IngestResponse,
+    JobRunResponse,
     ResearcherDetailRead,
+    ResearcherJobRequest,
     ResearcherRead,
+    ReviewDecisionRequest,
+    ReviewFactRead,
     SeminarSlotOverrideCreate,
     SeminarSlotOverrideRead,
     SeminarSlotTemplateCreate,
     SeminarSlotTemplateRead,
+    SourceDocumentRead,
     TripClusterRead,
 )
 from app.services.availability import AvailabilityBuilder
-from app.services.enrichment import Biographer
+from app.services.enrichment import Biographer, BiographerPipeline
 from app.services.ingestion import IngestionService
-from app.services.outreach import DraftGenerator
+from app.services.outreach import DraftGenerator, ReviewRequiredError
+from app.services.review import FactReviewService
 from app.services.scoring import Scorer
 
 router = APIRouter()
@@ -70,6 +79,28 @@ def sync_kof_calendar(session: Session = Depends(session_dep)) -> IngestResponse
     return IngestResponse(**summary.__dict__)
 
 
+@router.post("/jobs/repec-sync", response_model=JobRunResponse)
+def sync_repec(
+    payload: ResearcherJobRequest | None = None,
+    session: Session = Depends(session_dep),
+) -> JobRunResponse:
+    summary = BiographerPipeline(session).sync_repec(payload.researcher_id if payload else None)
+    Scorer(session).score_all_clusters()
+    session.commit()
+    return JobRunResponse(**summary.__dict__)
+
+
+@router.post("/jobs/biographer-refresh", response_model=JobRunResponse)
+def biographer_refresh(
+    payload: ResearcherJobRequest | None = None,
+    session: Session = Depends(session_dep),
+) -> JobRunResponse:
+    summary = BiographerPipeline(session).refresh(payload.researcher_id if payload else None)
+    Scorer(session).score_all_clusters()
+    session.commit()
+    return JobRunResponse(**summary.__dict__)
+
+
 @router.get("/researchers", response_model=list[ResearcherRead])
 def list_researchers(session: Session = Depends(session_dep)) -> list[Researcher]:
     return session.scalars(select(Researcher).options(selectinload(Researcher.facts)).order_by(Researcher.name)).all()
@@ -82,6 +113,9 @@ def get_researcher(researcher_id: str, session: Session = Depends(session_dep)) 
         .where(Researcher.id == researcher_id)
         .options(
             selectinload(Researcher.facts),
+            selectinload(Researcher.fact_candidates),
+            selectinload(Researcher.identities),
+            selectinload(Researcher.documents),
             selectinload(Researcher.talk_events),
             selectinload(Researcher.trip_clusters),
         )
@@ -89,6 +123,16 @@ def get_researcher(researcher_id: str, session: Session = Depends(session_dep)) 
     if not researcher:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
     return researcher
+
+
+@router.get("/researchers/{researcher_id}/documents", response_model=list[SourceDocumentRead])
+def get_researcher_documents(researcher_id: str, session: Session = Depends(session_dep)) -> list[SourceDocument]:
+    researcher = session.get(Researcher, researcher_id)
+    if not researcher:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
+    return session.scalars(
+        select(SourceDocument).where(SourceDocument.researcher_id == researcher_id).order_by(SourceDocument.created_at.desc())
+    ).all()
 
 
 @router.post("/researchers/{researcher_id}/enrich", response_model=ResearcherRead)
@@ -120,6 +164,60 @@ def calendar_overlay(
     host_events = session.scalars(select(HostCalendarEvent).order_by(HostCalendarEvent.starts_at)).all()
     open_windows = session.scalars(select(OpenSeminarWindow).order_by(OpenSeminarWindow.starts_at)).all()
     return CalendarOverlayResponse(host_events=host_events, open_windows=open_windows)
+
+
+@router.get("/review/facts", response_model=list[ReviewFactRead])
+def list_review_facts(
+    status_filter: str = Query(default="pending", alias="status"),
+    session: Session = Depends(session_dep),
+) -> list[ReviewFactRead]:
+    candidates = session.scalars(
+        select(FactCandidate)
+        .options(selectinload(FactCandidate.researcher))
+        .where(FactCandidate.status == status_filter)
+        .order_by(FactCandidate.confidence.desc(), FactCandidate.created_at.desc())
+    ).all()
+    return [
+        ReviewFactRead.model_validate(
+            {
+                **FactCandidateRead.model_validate(candidate).model_dump(),
+                "researcher_name": candidate.researcher.name,
+            }
+        )
+        for candidate in candidates
+    ]
+
+
+@router.post("/review/facts/{candidate_id}/approve", response_model=FactCandidateRead)
+def approve_fact_candidate(
+    candidate_id: str,
+    payload: ReviewDecisionRequest,
+    session: Session = Depends(session_dep),
+) -> FactCandidate:
+    candidate = session.get(FactCandidate, candidate_id)
+    if not candidate:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fact candidate not found")
+    FactReviewService(session).approve(candidate, merged_value=payload.merged_value, note=payload.note)
+    Scorer(session).score_all_clusters()
+    session.commit()
+    session.refresh(candidate)
+    return candidate
+
+
+@router.post("/review/facts/{candidate_id}/reject", response_model=FactCandidateRead)
+def reject_fact_candidate(
+    candidate_id: str,
+    payload: ReviewDecisionRequest,
+    session: Session = Depends(session_dep),
+) -> FactCandidate:
+    candidate = session.get(FactCandidate, candidate_id)
+    if not candidate:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Fact candidate not found")
+    FactReviewService(session).reject(candidate, note=payload.note)
+    Scorer(session).score_all_clusters()
+    session.commit()
+    session.refresh(candidate)
+    return candidate
 
 
 @router.get("/seminar/templates", response_model=list[SeminarSlotTemplateRead])
@@ -196,7 +294,10 @@ def create_draft(payload: DraftCreate, session: Session = Depends(session_dep)) 
     cluster = session.get(TripCluster, payload.trip_cluster_id)
     if not researcher or not cluster:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher or cluster not found")
-    draft = DraftGenerator(session).generate(researcher, cluster)
+    try:
+        draft = DraftGenerator(session).generate(researcher, cluster)
+    except ReviewRequiredError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     session.commit()
     return draft
 

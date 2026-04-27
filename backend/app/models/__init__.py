@@ -1,26 +1,31 @@
 from app.models.entities import (
+    FactCandidate,
     HostCalendarEvent,
     Institution,
     OpenSeminarWindow,
     OutreachDraft,
     Researcher,
     ResearcherFact,
+    ResearcherIdentity,
     SeminarSlotOverride,
     SeminarSlotTemplate,
+    SourceDocument,
     TalkEvent,
     TripCluster,
 )
 
 __all__ = [
+    "FactCandidate",
     "HostCalendarEvent",
     "Institution",
     "OpenSeminarWindow",
     "OutreachDraft",
     "Researcher",
     "ResearcherFact",
+    "ResearcherIdentity",
     "SeminarSlotOverride",
     "SeminarSlotTemplate",
+    "SourceDocument",
     "TalkEvent",
     "TripCluster",
 ]
-

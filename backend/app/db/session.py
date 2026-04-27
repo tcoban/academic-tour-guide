@@ -24,14 +24,17 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 
 def init_db() -> None:
     from app.models.entities import (  # noqa: F401
+        FactCandidate,
         HostCalendarEvent,
         Institution,
         OpenSeminarWindow,
         OutreachDraft,
         Researcher,
         ResearcherFact,
+        ResearcherIdentity,
         SeminarSlotOverride,
         SeminarSlotTemplate,
+        SourceDocument,
         TalkEvent,
         TripCluster,
     )
@@ -45,4 +48,3 @@ def get_session() -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
-

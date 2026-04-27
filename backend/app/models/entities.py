@@ -4,7 +4,19 @@ from datetime import UTC, date, datetime, time
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text, Time
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    JSON,
+    String,
+    Text,
+    Time,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -37,14 +49,70 @@ class Researcher(Base):
     name: Mapped[str] = mapped_column(String(255), index=True)
     normalized_name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     home_institution: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    home_institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), nullable=True, index=True)
     repec_rank: Mapped[float | None] = mapped_column(Float, nullable=True)
     birth_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
+    home_institution_ref: Mapped[Institution | None] = relationship(foreign_keys=[home_institution_id])
     facts: Mapped[list["ResearcherFact"]] = relationship(back_populates="researcher", cascade="all, delete-orphan")
+    fact_candidates: Mapped[list["FactCandidate"]] = relationship(
+        back_populates="researcher",
+        cascade="all, delete-orphan",
+    )
+    identities: Mapped[list["ResearcherIdentity"]] = relationship(
+        back_populates="researcher",
+        cascade="all, delete-orphan",
+    )
+    documents: Mapped[list["SourceDocument"]] = relationship(
+        back_populates="researcher",
+        cascade="all, delete-orphan",
+    )
     talk_events: Mapped[list["TalkEvent"]] = relationship(back_populates="researcher")
     trip_clusters: Mapped[list["TripCluster"]] = relationship(back_populates="researcher")
     outreach_drafts: Mapped[list["OutreachDraft"]] = relationship(back_populates="researcher")
+
+
+class ResearcherIdentity(Base):
+    __tablename__ = "researcher_identities"
+    __table_args__ = (UniqueConstraint("provider", "external_id", name="uq_researcher_identity_provider_external"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(64), index=True)
+    external_id: Mapped[str] = mapped_column(String(255), index=True)
+    canonical_name: Mapped[str] = mapped_column(String(255))
+    profile_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    match_confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    ranking_percentile: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ranking_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    synced_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    researcher: Mapped["Researcher"] = relationship(back_populates="identities")
+
+
+class SourceDocument(Base):
+    __tablename__ = "source_documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
+    url: Mapped[str] = mapped_column(String(500), index=True)
+    discovered_from_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    fetch_status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    extracted_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    researcher: Mapped["Researcher"] = relationship(back_populates="documents")
+    fact_candidates: Mapped[list["FactCandidate"]] = relationship(back_populates="source_document")
+    approved_facts: Mapped[list["ResearcherFact"]] = relationship(back_populates="source_document")
 
 
 class ResearcherFact(Base):
@@ -52,15 +120,53 @@ class ResearcherFact(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
     researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
+    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), nullable=True, index=True)
+    source_document_id: Mapped[str | None] = mapped_column(ForeignKey("source_documents.id"), nullable=True, index=True)
+    approved_via_candidate_id: Mapped[str | None] = mapped_column(ForeignKey("fact_candidates.id"), nullable=True, index=True)
     fact_type: Mapped[str] = mapped_column(String(64), index=True)
     value: Mapped[str] = mapped_column(String(255))
     confidence: Mapped[float] = mapped_column(Float, default=0.5)
     source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     evidence_snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
     verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    approval_origin: Mapped[str] = mapped_column(String(64), default="manual")
+    approved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     researcher: Mapped["Researcher"] = relationship(back_populates="facts")
+    institution: Mapped[Institution | None] = relationship()
+    source_document: Mapped[SourceDocument | None] = relationship(back_populates="approved_facts")
+    approved_via_candidate: Mapped["FactCandidate | None"] = relationship(
+        back_populates="approved_fact",
+        foreign_keys=[approved_via_candidate_id],
+    )
+
+
+class FactCandidate(Base):
+    __tablename__ = "fact_candidates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
+    source_document_id: Mapped[str | None] = mapped_column(ForeignKey("source_documents.id"), nullable=True, index=True)
+    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), nullable=True, index=True)
+    fact_type: Mapped[str] = mapped_column(String(64), index=True)
+    value: Mapped[str] = mapped_column(String(255))
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    evidence_snippet: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    origin: Mapped[str] = mapped_column(String(64), default="extracted")
+    review_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    researcher: Mapped["Researcher"] = relationship(back_populates="fact_candidates")
+    source_document: Mapped[SourceDocument | None] = relationship(back_populates="fact_candidates")
+    institution: Mapped[Institution | None] = relationship()
+    approved_fact: Mapped[ResearcherFact | None] = relationship(
+        back_populates="approved_via_candidate",
+        foreign_keys="ResearcherFact.approved_via_candidate_id",
+    )
 
 
 class TalkEvent(Base):
@@ -93,6 +199,7 @@ class TripCluster(Base):
     end_date: Mapped[date] = mapped_column(Date)
     itinerary: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     opportunity_score: Mapped[int] = mapped_column(Integer, default=0)
+    uses_unreviewed_evidence: Mapped[bool] = mapped_column(Boolean, default=False)
     rationale: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 

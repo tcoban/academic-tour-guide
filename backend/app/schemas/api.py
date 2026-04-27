@@ -16,6 +16,61 @@ class ResearcherFactRead(BaseModel):
     source_url: str | None = None
     evidence_snippet: str | None = None
     verified: bool
+    approval_origin: str
+
+
+class FactCandidateRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    researcher_id: str
+    source_document_id: str | None = None
+    fact_type: str
+    value: str
+    confidence: float
+    evidence_snippet: str | None = None
+    source_url: str | None = None
+    status: str
+    origin: str
+    review_note: str | None = None
+    reviewed_at: datetime | None = None
+    created_at: datetime
+
+
+class ReviewFactRead(FactCandidateRead):
+    researcher_name: str
+
+
+class ResearcherIdentityRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    provider: str
+    external_id: str
+    canonical_name: str
+    profile_url: str | None = None
+    match_confidence: float
+    ranking_percentile: float | None = None
+    ranking_label: str | None = None
+    metadata_json: dict[str, Any]
+    synced_at: datetime
+
+
+class SourceDocumentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    researcher_id: str
+    url: str
+    discovered_from_url: str | None = None
+    content_type: str | None = None
+    checksum: str | None = None
+    fetch_status: str
+    http_status: int | None = None
+    title: str | None = None
+    metadata_json: dict[str, Any]
+    fetched_at: datetime | None = None
+    created_at: datetime
 
 
 class ResearcherRead(BaseModel):
@@ -54,6 +109,7 @@ class TripClusterRead(BaseModel):
     end_date: date
     itinerary: list[dict[str, Any]]
     opportunity_score: int
+    uses_unreviewed_evidence: bool
     rationale: list[dict[str, Any]]
 
 
@@ -127,6 +183,15 @@ class EnrichRequest(BaseModel):
     birth_month: int | None = Field(default=None, ge=1, le=12)
 
 
+class ResearcherJobRequest(BaseModel):
+    researcher_id: str | None = None
+
+
+class ReviewDecisionRequest(BaseModel):
+    merged_value: str | None = None
+    note: str | None = None
+
+
 class DraftCreate(BaseModel):
     researcher_id: str
     trip_cluster_id: str
@@ -148,9 +213,18 @@ class DraftRead(BaseModel):
 class ResearcherDetailRead(ResearcherRead):
     talk_events: list[TalkEventRead] = Field(default_factory=list)
     trip_clusters: list[TripClusterRead] = Field(default_factory=list)
+    identities: list[ResearcherIdentityRead] = Field(default_factory=list)
+    documents: list[SourceDocumentRead] = Field(default_factory=list)
+    fact_candidates: list[FactCandidateRead] = Field(default_factory=list)
 
 
 class IngestResponse(BaseModel):
     source_counts: dict[str, int]
+    created_count: int
+    updated_count: int
+
+
+class JobRunResponse(BaseModel):
+    processed_count: int
     created_count: int
     updated_count: int

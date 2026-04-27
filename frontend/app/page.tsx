@@ -2,13 +2,14 @@ import Link from "next/link";
 
 import { Panel } from "@/components/panel";
 import { ScoreBadge } from "@/components/score-badge";
-import { getCalendarOverlay, getDailyCatch, getResearchers } from "@/lib/api";
+import { getCalendarOverlay, getDailyCatch, getResearchers, getReviewQueue } from "@/lib/api";
 
 export default async function HomePage() {
-  const [dailyCatch, overlay, researchers] = await Promise.all([
+  const [dailyCatch, overlay, researchers, reviewQueue] = await Promise.all([
     getDailyCatch(),
     getCalendarOverlay(),
     getResearchers(),
+    getReviewQueue(),
   ]);
 
   const topScore = dailyCatch.top_clusters[0]?.opportunity_score ?? 0;
@@ -35,6 +36,10 @@ export default async function HomePage() {
             <div className="metric">
               <div className="metric-value">{topScore}</div>
               <div className="metric-label">Top current opportunity score</div>
+            </div>
+            <div className="metric">
+              <div className="metric-value">{reviewQueue.length}</div>
+              <div className="metric-label">Pending review items</div>
             </div>
           </div>
         </div>
@@ -76,6 +81,7 @@ export default async function HomePage() {
                     </span>
                   ))}
                 </div>
+                {cluster.uses_unreviewed_evidence ? <p className="fine-print">Pending evidence is currently contributing to this score.</p> : null}
               </div>
             ))}
           </div>
@@ -141,4 +147,3 @@ export default async function HomePage() {
     </>
   );
 }
-
