@@ -8,7 +8,7 @@ from app.services.clustering import TripClusterer
 from app.services.enrichment import BiographerPipeline
 from app.services.ingestion import IngestionService
 from app.services.scoring import Scorer
-from app.services.seed import seed_reference_data
+from app.services.seed import seed_demo_data, seed_reference_data
 
 
 def run(command: str) -> None:
@@ -25,6 +25,8 @@ def run(command: str) -> None:
         elif command == "biographer-refresh":
             BiographerPipeline(session).refresh()
             Scorer(session).score_all_clusters()
+        elif command == "seed-demo":
+            seed_demo_data(session)
         elif command == "rebuild":
             TripClusterer(session).rebuild_all()
             AvailabilityBuilder(session).rebuild_persisted()
@@ -34,7 +36,7 @@ def run(command: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Academic Tour Guide worker")
-    parser.add_argument("command", choices=["ingest", "sync-host", "repec-sync", "biographer-refresh", "rebuild"])
+    parser.add_argument("command", choices=["ingest", "sync-host", "repec-sync", "biographer-refresh", "seed-demo", "rebuild"])
     args = parser.parse_args()
     run(args.command)
 

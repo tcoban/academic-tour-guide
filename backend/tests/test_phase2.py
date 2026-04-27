@@ -234,3 +234,20 @@ def test_approved_candidates_enable_draft_generation(client, db_session: Session
     assert response.status_code == 200
     assert "Biographic hook" in response.json()["body"]
     assert {fact.fact_type for fact in researcher_facts} == {"phd_institution", "nationality"}
+
+
+def test_seed_demo_endpoint_creates_reviewable_pilot_data(client) -> None:
+    response = client.post("/api/jobs/seed-demo")
+    assert response.status_code == 200
+    assert response.json()["processed_count"] == 2
+
+    researchers_response = client.get("/api/researchers")
+    review_response = client.get("/api/review/facts")
+    catch_response = client.get("/api/dashboard/daily-catch")
+
+    assert researchers_response.status_code == 200
+    assert review_response.status_code == 200
+    assert catch_response.status_code == 200
+    assert len(researchers_response.json()) >= 2
+    assert any(item["researcher_name"] == "Prof. Luca Pending" for item in review_response.json())
+    assert catch_response.json()["top_clusters"]

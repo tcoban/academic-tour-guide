@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -46,6 +47,7 @@ from app.services.ingestion import IngestionService
 from app.services.outreach import DraftGenerator, ReviewRequiredError
 from app.services.review import FactReviewService
 from app.services.scoring import Scorer
+from app.services.seed import seed_demo_data
 
 router = APIRouter()
 
@@ -69,14 +71,14 @@ def daily_catch(session: Session = Depends(session_dep)) -> DailyCatchResponse:
 def ingest(session: Session = Depends(session_dep)) -> IngestResponse:
     summary = IngestionService(session).ingest_sources()
     session.commit()
-    return IngestResponse(**summary.__dict__)
+    return IngestResponse(**asdict(summary))
 
 
 @router.post("/jobs/sync-kof-calendar", response_model=IngestResponse)
 def sync_kof_calendar(session: Session = Depends(session_dep)) -> IngestResponse:
     summary = IngestionService(session).sync_host_calendar()
     session.commit()
-    return IngestResponse(**summary.__dict__)
+    return IngestResponse(**asdict(summary))
 
 
 @router.post("/jobs/repec-sync", response_model=JobRunResponse)
@@ -87,7 +89,7 @@ def sync_repec(
     summary = BiographerPipeline(session).sync_repec(payload.researcher_id if payload else None)
     Scorer(session).score_all_clusters()
     session.commit()
-    return JobRunResponse(**summary.__dict__)
+    return JobRunResponse(**asdict(summary))
 
 
 @router.post("/jobs/biographer-refresh", response_model=JobRunResponse)
@@ -98,7 +100,14 @@ def biographer_refresh(
     summary = BiographerPipeline(session).refresh(payload.researcher_id if payload else None)
     Scorer(session).score_all_clusters()
     session.commit()
-    return JobRunResponse(**summary.__dict__)
+    return JobRunResponse(**asdict(summary))
+
+
+@router.post("/jobs/seed-demo", response_model=JobRunResponse)
+def seed_demo(session: Session = Depends(session_dep)) -> JobRunResponse:
+    summary = seed_demo_data(session)
+    session.commit()
+    return JobRunResponse(**asdict(summary))
 
 
 @router.get("/researchers", response_model=list[ResearcherRead])

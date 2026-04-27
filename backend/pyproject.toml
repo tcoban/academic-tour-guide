@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "FastAPI backend for Academic Tour Guide."
 requires-python = ">=3.12"
 dependencies = [
+  "alembic>=1.14.0",
   "beautifulsoup4>=4.12.3",
   "fastapi>=0.115.0",
   "httpx>=0.27.2",
@@ -23,6 +24,9 @@ dev = [
 [build-system]
 requires = ["setuptools>=75.1.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
