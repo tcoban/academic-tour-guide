@@ -9,6 +9,7 @@ from app.scraping.sources import (
     BONN_SOURCE,
     ECB_SOURCE,
     MANNHEIM_SOURCE,
+    BisPdfConferenceSource,
     GenericEventSource,
     KofHostCalendarAdapter,
 )
@@ -127,6 +128,28 @@ def test_bis_parser_extracts_event() -> None:
     assert len(events) == 1
     assert events[0].speaker_name == "Prof. Dario Sample"
     assert events[0].city == "Basel"
+
+
+def test_bis_pdf_conference_source_extracts_keynote_speakers() -> None:
+    adapter = BisPdfConferenceSource()
+    events = adapter.extract(
+        RawPage(
+            url="https://www.bis.org/events/260526_cfp_heterogeneity_inflation.pdf",
+            html="""
+            Conference Dates: 26-27 May 2026 | Host: BIS, Basel.
+            Academic keynote speakers:
+            - Klaus Adam (University of Mannheim, UCL, & CEPR)
+            - Xavier Jaravel (LSE & CEPR)
+            Focus areas:
+            Inflation heterogeneity.
+            """,
+        )
+    )
+    assert len(events) == 2
+    assert events[0].speaker_name == "Klaus Adam"
+    assert events[0].speaker_affiliation == "University of Mannheim, UCL, & CEPR"
+    assert events[0].starts_at.isoformat().startswith("2026-05-26T09:00:00")
+    assert events[1].speaker_name == "Xavier Jaravel"
 
 
 def test_kof_index_discovers_detail_urls() -> None:

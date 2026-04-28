@@ -205,6 +205,13 @@ class SourceHealthRead(BaseModel):
     checked_at: datetime
 
 
+class SourceHealthHistoryRead(SourceHealthRead):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    created_at: datetime
+
+
 class EnrichRequest(BaseModel):
     cv_text: str | None = None
     source_url: str | None = None

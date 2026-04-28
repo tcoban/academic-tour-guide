@@ -1,6 +1,6 @@
 import { Panel } from "@/components/panel";
 import { SourceJobRunner } from "@/components/source-job-runner";
-import { getSourceHealth } from "@/lib/api";
+import { getSourceHealth, getSourceHealthHistory } from "@/lib/api";
 
 function sourceLabel(name: string): string {
   return name
@@ -20,11 +20,12 @@ function healthTone(status: string, eventCount: number): string {
 }
 
 export default async function SourceHealthPage() {
-  const health = await getSourceHealth();
+  const [health, history] = await Promise.all([getSourceHealth(), getSourceHealthHistory()]);
   const totalEvents = health.reduce((sum, source) => sum + source.event_count, 0);
   const healthySources = health.filter((source) => source.status === "ok" && source.event_count > 0).length;
   const zeroEventSources = health.filter((source) => source.status === "ok" && source.event_count === 0).length;
   const failingSources = health.filter((source) => source.status !== "ok").length;
+  const latestHistory = history.slice(0, 12);
 
   return (
     <div className="stack">
@@ -67,6 +68,30 @@ export default async function SourceHealthPage() {
 
       <Panel title="Run sync jobs" copy="Trigger the practical maintenance jobs without leaving the dashboard.">
         <SourceJobRunner />
+      </Panel>
+
+      <Panel title="Recorded audit history" copy="Recent persisted checks let us spot source degradation instead of relying on one live snapshot.">
+        {latestHistory.length > 0 ? (
+          <div className="history-grid">
+            {latestHistory.map((record) => (
+              <div className="list-card" key={record.id}>
+                <div className="panel-header">
+                  <div>
+                    <h3>{sourceLabel(record.source_name)}</h3>
+                    <p className="muted">{new Date(record.checked_at).toLocaleString()}</p>
+                  </div>
+                  <span className={`status-pill ${healthTone(record.status, record.event_count)}`}>{record.status}</span>
+                </div>
+                <div className="timeline-strip">
+                  <span className="timeline-chip">{record.page_count} pages</span>
+                  <span className="timeline-chip">{record.event_count} events</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="fine-print">No recorded audits yet. Use “Record source audit” to create the first history row for each source.</p>
+        )}
       </Panel>
 
       <section className="content-grid">

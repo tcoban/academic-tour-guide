@@ -14,12 +14,15 @@ from app.services.seed import seed_demo_data, seed_reference_data
 
 def run(command: str) -> None:
     if command == "audit-sources":
-        for result in SourceAuditor().audit():
-            print(f"{result.source_name}: {result.status} pages={result.page_count} events={result.event_count}")
-            if result.error:
-                print(f"  error: {result.error}")
-            for sample in result.samples:
-                print(f"  sample: {sample}")
+        init_db()
+        with SessionLocal() as session:
+            for record in SourceAuditor().record(session):
+                print(f"{record.source_name}: {record.status} pages={record.page_count} events={record.event_count}")
+                if record.error:
+                    print(f"  error: {record.error}")
+                for sample in record.samples:
+                    print(f"  sample: {sample}")
+            session.commit()
         return
 
     init_db()

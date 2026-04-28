@@ -13,6 +13,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Alembic baseline migration for repeatable PostgreSQL or SQLite schema setup.
 - Rules-first source adapters for Bocconi, Mannheim, Bonn, ECB, BIS, and KOF.
 - KOF host-calendar sync reads the ETH public calendar JSON feed discovered from the KOF event page and stores those entries as occupied slots.
+- BIS adapter reads a public call-for-papers PDF and extracts named academic keynote speakers as Basel opportunity signals.
 - RePEc/IDEAS identity sync with persistent external researcher identities.
 - Institution-linked document discovery for seminar pages, RePEc profiles, public profile pages, CVs, and PDFs.
 - Evidence-backed enrichment with pending fact candidates, approved facts, source documents, and review history.
@@ -28,7 +29,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Review inbox for approving or rejecting extracted fact candidates before outreach.
 - Seminar template and override administration.
 - Opportunity workbench for ranking trip clusters, inspecting best KOF slot fit, and seeing whether outreach is draft-ready.
-- Source health page for checking live scraper output and zero-event sources.
+- Source health page for checking live scraper output, recording audit history, and spotting zero-event sources.
 - Outreach draft preview for KOF admins.
 
 ## Local Development
@@ -57,6 +58,8 @@ From `backend/`:
 - `python -m app.worker seed-demo`
 - `python -m app.worker rebuild`
 - `python -m app.worker audit-sources`
+
+`audit-sources` records the current source-health snapshot in the local database and prints the same summary to the terminal.
 
 ## Demo Data
 
@@ -89,5 +92,7 @@ Useful API endpoints:
 - `GET /api/researchers/{id}/documents`
 - `GET /api/opportunities/workbench`
 - `GET /api/source-health`
+- `POST /api/jobs/audit-sources`
+- `GET /api/source-health/history`
 
 PDF extraction is enabled through `pypdf`; unsupported or failed documents are recorded as source documents without crashing the refresh pipeline.

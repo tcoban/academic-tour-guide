@@ -172,6 +172,11 @@ export type SourceHealth = {
   checked_at: string;
 };
 
+export type SourceHealthRecord = SourceHealth & {
+  id: string;
+  created_at: string;
+};
+
 export type SeminarSlotTemplate = {
   id: string;
   label: string;
@@ -239,6 +244,10 @@ export function getSourceHealth(): Promise<SourceHealth[]> {
   return getJson<SourceHealth[]>("/source-health");
 }
 
+export function getSourceHealthHistory(): Promise<SourceHealthRecord[]> {
+  return getJson<SourceHealthRecord[]>("/source-health/history");
+}
+
 export function getOpportunityWorkbench(): Promise<OpportunityWorkbench> {
   return getJson<OpportunityWorkbench>("/opportunities/workbench");
 }
@@ -286,6 +295,12 @@ export async function runExternalIngest(): Promise<IngestResponse> {
 
 export async function runKofCalendarSync(): Promise<IngestResponse> {
   return getJson<IngestResponse>("/jobs/sync-kof-calendar", {
+    method: "POST",
+  });
+}
+
+export async function runSourceAudit(): Promise<SourceHealthRecord[]> {
+  return getJson<SourceHealthRecord[]>("/jobs/audit-sources", {
     method: "POST",
   });
 }

@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
-from app.models.entities import OpenSeminarWindow, Researcher, ResearcherFact, TalkEvent, TripCluster
+from app.models.entities import OpenSeminarWindow, Researcher, ResearcherFact, SourceHealthCheck, TalkEvent, TripCluster
 from app.services.audit import SourceAuditResult
 from app.services.enrichment import normalize_name
 
@@ -128,6 +128,51 @@ def test_source_health_endpoint_reports_audit_results(client, monkeypatch) -> No
     assert payload[0]["source_name"] == "kof_host_calendar"
     assert payload[0]["event_count"] == 7
     assert payload[0]["source_type"] == "host_calendar"
+
+
+def test_source_health_history_lists_persisted_records(client, db_session: Session) -> None:
+    db_session.add(
+        SourceHealthCheck(
+            source_name="bis",
+            source_type="external_opportunity",
+            status="ok",
+            page_count=1,
+            event_count=2,
+            samples=["2026-05-26 - Klaus Adam - Heterogeneity and Inflation"],
+        )
+    )
+    db_session.commit()
+
+    response = client.get("/api/source-health/history")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["source_name"] == "bis"
+    assert payload[0]["event_count"] == 2
+    assert payload[0]["samples"] == ["2026-05-26 - Klaus Adam - Heterogeneity and Inflation"]
+
+
+def test_audit_sources_job_records_results(client, monkeypatch) -> None:
+    class StubAuditor:
+        def record(self, session: Session) -> list[SourceHealthCheck]:
+            record = SourceHealthCheck(
+                source_name="bocconi",
+                source_type="external_opportunity",
+                status="ok",
+                page_count=1,
+                event_count=6,
+                samples=["2026-06-03 - Nikita Melnikov - Gang Crackdowns"],
+            )
+            session.add(record)
+            session.flush()
+            return [record]
+
+    monkeypatch.setattr("app.api.routes.SourceAuditor", StubAuditor)
+    response = client.post("/api/jobs/audit-sources")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["source_name"] == "bocconi"
+    assert payload[0]["event_count"] == 6
 
 
 def test_opportunity_workbench_returns_best_slot_and_draft_readiness(client, db_session: Session) -> None:

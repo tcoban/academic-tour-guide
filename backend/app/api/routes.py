@@ -16,6 +16,7 @@ from app.models.entities import (
     Researcher,
     SeminarSlotOverride,
     SeminarSlotTemplate,
+    SourceHealthCheck,
     SourceDocument,
     TalkEvent,
     TripCluster,
@@ -39,6 +40,7 @@ from app.schemas.api import (
     SeminarSlotOverrideRead,
     SeminarSlotTemplateCreate,
     SeminarSlotTemplateRead,
+    SourceHealthHistoryRead,
     SourceHealthRead,
     SourceDocumentRead,
     TripClusterRead,
@@ -83,6 +85,13 @@ def sync_kof_calendar(session: Session = Depends(session_dep)) -> IngestResponse
     summary = IngestionService(session).sync_host_calendar()
     session.commit()
     return IngestResponse(**asdict(summary))
+
+
+@router.post("/jobs/audit-sources", response_model=list[SourceHealthHistoryRead])
+def audit_sources(session: Session = Depends(session_dep)) -> list[SourceHealthCheck]:
+    records = SourceAuditor().record(session)
+    session.commit()
+    return records
 
 
 @router.post("/jobs/repec-sync", response_model=JobRunResponse)
@@ -190,6 +199,23 @@ def opportunity_workbench(
 @router.get("/source-health", response_model=list[SourceHealthRead])
 def source_health() -> list[dict]:
     return [asdict(result) for result in SourceAuditor().audit()]
+
+
+@router.get("/source-health/history", response_model=list[SourceHealthHistoryRead])
+def source_health_history(
+    source_name: str | None = Query(default=None),
+    limit: int = Query(default=60, ge=1, le=500),
+    session: Session = Depends(session_dep),
+) -> list[SourceHealthCheck]:
+    query = select(SourceHealthCheck).order_by(SourceHealthCheck.checked_at.desc()).limit(limit)
+    if source_name:
+        query = (
+            select(SourceHealthCheck)
+            .where(SourceHealthCheck.source_name == source_name)
+            .order_by(SourceHealthCheck.checked_at.desc())
+            .limit(limit)
+        )
+    return session.scalars(query).all()
 
 
 @router.get("/review/facts", response_model=list[ReviewFactRead])

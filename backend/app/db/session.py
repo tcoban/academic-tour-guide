@@ -34,6 +34,7 @@ def init_db() -> None:
         ResearcherIdentity,
         SeminarSlotOverride,
         SeminarSlotTemplate,
+        SourceHealthCheck,
         SourceDocument,
         TalkEvent,
         TripCluster,

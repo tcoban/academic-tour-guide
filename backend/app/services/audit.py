@@ -3,6 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
+from sqlalchemy.orm import Session
+
+from app.models.entities import SourceHealthCheck
 from app.scraping.sources import get_host_calendar_adapter, iter_source_adapters
 
 
@@ -75,3 +78,21 @@ class SourceAuditor:
                 )
             )
         return results
+
+    def record(self, session: Session) -> list[SourceHealthCheck]:
+        records: list[SourceHealthCheck] = []
+        for result in self.audit():
+            record = SourceHealthCheck(
+                source_name=result.source_name,
+                source_type=result.source_type,
+                status=result.status,
+                page_count=result.page_count,
+                event_count=result.event_count,
+                samples=result.samples,
+                error=result.error,
+                checked_at=result.checked_at,
+            )
+            session.add(record)
+            records.append(record)
+        session.flush()
+        return records

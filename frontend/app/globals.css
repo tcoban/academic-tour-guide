@@ -349,6 +349,12 @@ a {
   color: var(--accent-2);
 }
 
+.history-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+}
+
 .facts-grid {
   display: grid;
   gap: 12px;

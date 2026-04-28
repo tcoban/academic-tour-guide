@@ -3,12 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from hashlib import sha256
+from io import BytesIO
 import re
 from zoneinfo import ZoneInfo
 
 from bs4 import BeautifulSoup
 from dateutil import parser as date_parser
 import httpx
+from pypdf import PdfReader
 
 from app.core.config import settings
 from app.scraping.base import ExtractedHostEvent, ExtractedTalkEvent, RawPage
@@ -231,6 +233,72 @@ class GenericEventSource:
                 )
             )
         return events
+
+
+class BisPdfConferenceSource:
+    name = "bis"
+    urls = ["https://www.bis.org/events/260526_cfp_heterogeneity_inflation.pdf"]
+    title = "Heterogeneity & Inflation: From Microeconomic Variation to Macroeconomic Impact"
+
+    def fetch_pages(self, client: httpx.Client | None = None) -> list[RawPage]:
+        owns_client = client is None
+        http_client = client or httpx.Client(timeout=20.0, follow_redirects=True)
+        pages: list[RawPage] = []
+        try:
+            for url in self.urls:
+                response = http_client.get(url)
+                response.raise_for_status()
+                reader = PdfReader(BytesIO(response.content))
+                text = "\n".join(page.extract_text() or "" for page in reader.pages)
+                pages.append(RawPage(url=url, html=text))
+        finally:
+            if owns_client:
+                http_client.close()
+        return pages
+
+    def extract(self, raw_page: RawPage) -> list[ExtractedTalkEvent]:
+        text = raw_page.html
+        date_match = re.search(r"Conference Dates:\s*(\d{1,2})[–-](\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", text)
+        starts_at = _parse_datetime("26 May 2026 09:00")
+        ends_at = _parse_datetime("27 May 2026 17:00")
+        if date_match:
+            start_day, end_day, month, year = date_match.groups()
+            starts_at = _parse_datetime(f"{start_day} {month} {year} 09:00")
+            ends_at = _parse_datetime(f"{end_day} {month} {year} 17:00")
+
+        speakers = self._extract_keynote_speakers(text)
+        return [
+            ExtractedTalkEvent(
+                source_name=self.name,
+                title=self.title,
+                speaker_name=name,
+                speaker_affiliation=affiliation,
+                city="Basel",
+                country="Switzerland",
+                starts_at=starts_at,
+                ends_at=ends_at,
+                url=raw_page.url,
+                raw_payload={"discovered_from": raw_page.url, "document_type": "pdf_call_for_papers", "role": "academic_keynote"},
+            )
+            for name, affiliation in speakers
+        ]
+
+    def _extract_keynote_speakers(self, text: str) -> list[tuple[str, str | None]]:
+        normalized = "\n".join(line.strip() for line in text.splitlines() if line.strip())
+        match = re.search(r"Academic keynote speakers:\s*(?P<body>.*?)(?:Focus areas:|Submissions)", normalized, flags=re.I | re.S)
+        if not match:
+            return []
+
+        speakers: list[tuple[str, str | None]] = []
+        for line in match.group("body").splitlines():
+            cleaned = line.strip().lstrip("-").strip()
+            if not cleaned or "(" not in cleaned:
+                continue
+            speaker_match = re.match(r"(?P<name>[^()]+)\((?P<affiliation>[^)]+)\)", cleaned)
+            if not speaker_match:
+                continue
+            speakers.append((speaker_match.group("name").strip(), speaker_match.group("affiliation").strip()))
+        return speakers
 
 
 class KofHostCalendarAdapter:
@@ -480,7 +548,7 @@ def iter_source_adapters() -> list[GenericEventSource]:
         GenericEventSource(MANNHEIM_SOURCE),
         GenericEventSource(BONN_SOURCE),
         GenericEventSource(ECB_SOURCE),
-        GenericEventSource(BIS_SOURCE),
+        BisPdfConferenceSource(),
     ]
 
 
@@ -490,6 +558,7 @@ def get_host_calendar_adapter() -> KofHostCalendarAdapter:
 
 __all__ = [
     "_build_source_hash",
+    "BisPdfConferenceSource",
     "GenericEventSource",
     "KofHostCalendarAdapter",
     "get_host_calendar_adapter",

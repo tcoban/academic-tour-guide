@@ -115,6 +115,21 @@ class SourceDocument(Base):
     approved_facts: Mapped[list["ResearcherFact"]] = relationship(back_populates="source_document")
 
 
+class SourceHealthCheck(Base):
+    __tablename__ = "source_health_checks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    source_name: Mapped[str] = mapped_column(String(120), index=True)
+    source_type: Mapped[str] = mapped_column(String(64), index=True)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    page_count: Mapped[int] = mapped_column(Integer, default=0)
+    event_count: Mapped[int] = mapped_column(Integer, default=0)
+    samples: Mapped[list[str]] = mapped_column(JSON, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class ResearcherFact(Base):
     __tablename__ = "researcher_facts"
 
