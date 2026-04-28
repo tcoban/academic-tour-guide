@@ -164,6 +164,37 @@ def test_enrichment_endpoint_adds_fact(client, db_session: Session) -> None:
     assert manual_fact["evidence_snippet"] == "Profile lists Swiss nationality and University of Zurich PhD."
 
 
+def test_review_approval_can_merge_candidate_value(client, db_session: Session) -> None:
+    researcher = Researcher(name="Prof. Clara Merge", normalized_name=normalize_name("Prof. Clara Merge"))
+    researcher.fact_candidates = [
+        FactCandidate(
+            fact_type="nationality",
+            value="German citizen",
+            confidence=0.82,
+            evidence_snippet="German citizen",
+            source_url="https://cv.example/clara",
+            status="pending",
+        )
+    ]
+    db_session.add(researcher)
+    db_session.commit()
+    candidate = researcher.fact_candidates[0]
+
+    response = client.post(
+        f"/api/review/facts/{candidate.id}/approve",
+        json={"merged_value": "German", "note": "Normalized parser output."},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "approved"
+    assert payload["value"] == "German"
+    approved_facts = db_session.query(ResearcherFact).filter(ResearcherFact.researcher_id == researcher.id).all()
+    assert len(approved_facts) == 1
+    assert approved_facts[0].value == "German"
+    assert approved_facts[0].approval_origin == "review_queue"
+
+
 def test_source_health_endpoint_reports_audit_results(client, monkeypatch) -> None:
     class StubAuditor:
         def audit(self) -> list[SourceAuditResult]:

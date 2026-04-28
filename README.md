@@ -30,7 +30,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Golden Window calendar that overlays KOF occupied events, derived open slots, and matched opportunity candidates.
 - Manual approved-fact entry on researcher dossiers for admins to unblock draft eligibility with auditable source notes.
 - Researcher-scoped refresh controls for RePEc identity sync and biographer document/fact extraction.
-- Review inbox for approving or rejecting extracted fact candidates before outreach.
+- Review inbox for editing, approving, or rejecting extracted fact candidates before outreach.
 - Seminar template and override administration.
 - Opportunity workbench for ranking trip clusters, inspecting best KOF slot fit, and seeing whether outreach is draft-ready.
 - Draft library for browsing generated outreach variants, filtering by lifecycle status, and reopening provenance-backed draft previews.

@@ -14,12 +14,25 @@ export function ReviewInbox({ candidates }: ReviewInboxProps) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mergedValues, setMergedValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(candidates.map((candidate) => [candidate.id, candidate.value])),
+  );
 
-  async function handleApprove(candidateId: string) {
+  function updateMergedValue(candidateId: string, value: string) {
+    setMergedValues((current) => ({ ...current, [candidateId]: value }));
+  }
+
+  async function handleApprove(candidate: ReviewFact) {
+    const mergedValue = (mergedValues[candidate.id] ?? candidate.value).trim();
+    if (!mergedValue) {
+      setError("Approved value cannot be empty.");
+      return;
+    }
+
     try {
-      setBusyId(candidateId);
+      setBusyId(candidate.id);
       setError(null);
-      await approveFactCandidate(candidateId);
+      await approveFactCandidate(candidate.id, mergedValue === candidate.value ? undefined : mergedValue);
       router.refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Approval failed.");
@@ -63,9 +76,16 @@ export function ReviewInbox({ candidates }: ReviewInboxProps) {
               Evidence source
             </a>
           ) : null}
+          <label>
+            Approved value
+            <input
+              value={mergedValues[candidate.id] ?? candidate.value}
+              onChange={(event) => updateMergedValue(candidate.id, event.target.value)}
+            />
+          </label>
           <div className="timeline-strip">
-            <button type="button" onClick={() => handleApprove(candidate.id)} disabled={busyId === candidate.id}>
-              {busyId === candidate.id ? "Approving..." : "Approve"}
+            <button type="button" onClick={() => handleApprove(candidate)} disabled={busyId === candidate.id}>
+              {busyId === candidate.id ? "Approving..." : "Approve value"}
             </button>
             <button type="button" className="ghost-button" onClick={() => handleReject(candidate.id)} disabled={busyId === candidate.id}>
               Reject

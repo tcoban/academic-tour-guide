@@ -9,7 +9,7 @@ export default async function ReviewPage() {
     <div className="stack">
       <Panel
         title="Review Inbox"
-        copy="Approve or reject pending biographic evidence before the outreach engine can use it."
+        copy="Edit, approve, or reject pending biographic evidence before the outreach engine can use it."
       >
         {candidates.length ? (
           <ReviewInbox candidates={candidates} />
