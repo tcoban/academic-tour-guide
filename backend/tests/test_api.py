@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import Session
 
 from app.models.entities import OpenSeminarWindow, Researcher, ResearcherFact, TalkEvent, TripCluster
+from app.services.audit import SourceAuditResult
 from app.services.enrichment import normalize_name
 
 
@@ -105,3 +106,25 @@ def test_enrichment_endpoint_adds_fact(client, db_session: Session) -> None:
     fact_types = {fact["fact_type"] for fact in payload["facts"]}
     assert {"phd_institution", "nationality"}.issubset(fact_types)
 
+
+def test_source_health_endpoint_reports_audit_results(client, monkeypatch) -> None:
+    class StubAuditor:
+        def audit(self) -> list[SourceAuditResult]:
+            return [
+                SourceAuditResult(
+                    source_name="kof_host_calendar",
+                    source_type="host_calendar",
+                    status="ok",
+                    page_count=1,
+                    event_count=7,
+                    samples=["2026-04-29 - KOF Research Seminar"],
+                )
+            ]
+
+    monkeypatch.setattr("app.api.routes.SourceAuditor", StubAuditor)
+    response = client.get("/api/source-health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload[0]["source_name"] == "kof_host_calendar"
+    assert payload[0]["event_count"] == 7
+    assert payload[0]["source_type"] == "host_calendar"

@@ -239,16 +239,33 @@ class KofHostCalendarAdapter:
 
     def fetch_occupied(self, client: httpx.Client | None = None) -> list[ExtractedHostEvent]:
         index_page = _fetch_urls([self.index_url], client=client)[0]
-        detail_urls = self.discover_detail_urls(index_page)
-        if not detail_urls:
-            return []
-        detail_pages = _fetch_urls(detail_urls, client=client)
         events: list[ExtractedHostEvent] = []
-        for page in detail_pages:
-            event = self.extract_detail(page)
-            if event:
-                events.append(event)
-        return events
+
+        detail_urls = self.discover_detail_urls(index_page)
+        if detail_urls:
+            detail_pages = _fetch_urls(detail_urls, client=client)
+            for page in detail_pages:
+                event = self.extract_detail(page)
+                if event:
+                    events.append(event)
+
+        api_url = self.discover_api_url(index_page)
+        if api_url:
+            http_client = client or httpx.Client(timeout=20.0, follow_redirects=True)
+            owns_client = client is None
+            try:
+                response = http_client.get(api_url)
+                response.raise_for_status()
+                api_events = self.extract_api_events(response.json(), api_url=api_url, index_url=index_page.url)
+                events.extend(api_events)
+            finally:
+                if owns_client:
+                    http_client.close()
+
+        unique: dict[tuple[str, str], ExtractedHostEvent] = {}
+        for event in events:
+            unique[(event.title, event.starts_at.isoformat())] = event
+        return sorted(unique.values(), key=lambda item: item.starts_at)
 
     def discover_detail_urls(self, raw_page: RawPage) -> list[str]:
         soup = BeautifulSoup(raw_page.html, "html.parser")
@@ -267,6 +284,100 @@ class KofHostCalendarAdapter:
             seen.add(absolute)
             urls.append(absolute)
         return urls
+
+    def discover_api_url(self, raw_page: RawPage) -> str | None:
+        soup = BeautifulSoup(raw_page.html, "html.parser")
+        calendar = soup.select_one("[data-init='eventCalendar'][data-events-url]")
+        if calendar and calendar.get("data-events-url"):
+            return str(calendar.get("data-events-url"))
+        match = re.search(r'data-events-url="([^"]+)"', raw_page.html)
+        if match:
+            return match.group(1)
+        return None
+
+    def extract_api_events(self, payload: dict, *, api_url: str, index_url: str) -> list[ExtractedHostEvent]:
+        events: list[ExtractedHostEvent] = []
+        for entry in payload.get("entry-array", []):
+            event_id = entry.get("id")
+            content = entry.get("content") or {}
+            title = content.get("title")
+            if not title:
+                continue
+            for start_at, end_at in self._entry_time_ranges(entry):
+                events.append(
+                    ExtractedHostEvent(
+                        title=title,
+                        location=self._entry_location(entry),
+                        starts_at=start_at,
+                        ends_at=end_at,
+                        url=f"{index_url}#event-{event_id}" if event_id else index_url,
+                        metadata_json={
+                            "source": "kof_api",
+                            "event_id": event_id,
+                            "api_url": api_url,
+                            "series_name": (entry.get("classification") or {}).get("series-name"),
+                            "entry_type": (entry.get("classification") or {}).get("entry-type-desc"),
+                            "speakers": self._entry_speakers(entry),
+                        },
+                    )
+                )
+        return events
+
+    def _entry_time_ranges(self, entry: dict) -> list[tuple[datetime, datetime | None]]:
+        indication = entry.get("date-time-indication") or {}
+        ranges: list[tuple[datetime, datetime | None]] = []
+        for timerange in indication.get("in-progress-timerange-array", []):
+            start_text = timerange.get("date-time-from")
+            end_text = timerange.get("date-time-to")
+            if not start_text:
+                continue
+            start_at = _parse_datetime(start_text)
+            end_at = _parse_datetime(end_text) if end_text else None
+            ranges.append((start_at, end_at))
+
+        if ranges:
+            return ranges
+
+        for item in indication.get("date-with-times-array", []):
+            date_text = item.get("date")
+            if not date_text:
+                continue
+            start_text = f"{date_text} {item.get('time-from') or '00:00'}"
+            end_text = f"{date_text} {item.get('time-to')}" if item.get("time-to") else None
+            start_at = _parse_datetime(start_text)
+            end_at = _parse_datetime(end_text) if end_text else None
+            ranges.append((start_at, end_at))
+        return ranges
+
+    def _entry_location(self, entry: dict) -> str | None:
+        location = entry.get("location") or {}
+        internal = location.get("internal") or {}
+        external = location.get("external") or {}
+        if internal:
+            parts = [
+                internal.get("building"),
+                internal.get("floor"),
+                internal.get("room"),
+                internal.get("area-desc"),
+            ]
+            return ", ".join(str(part).strip() for part in parts if part)
+        if external:
+            return ", ".join(str(value).strip() for value in external.values() if value)
+        return None
+
+    def _entry_speakers(self, entry: dict) -> list[dict]:
+        speakers: list[dict] = []
+        for owner in entry.get("function-owner-array", []):
+            if owner.get("function-desc") != "Speaker":
+                continue
+            speakers.append(
+                {
+                    "first_name": str(owner.get("first-name") or "").strip(),
+                    "last_name": str(owner.get("last-name") or "").strip(),
+                    "person_url": owner.get("person-url"),
+                }
+            )
+        return speakers
 
     def extract_detail(self, raw_page: RawPage) -> ExtractedHostEvent | None:
         soup = BeautifulSoup(raw_page.html, "html.parser")

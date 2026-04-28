@@ -129,9 +129,26 @@ export type DailyCatch = {
   top_clusters: TripCluster[];
 };
 
+export type IngestResponse = {
+  source_counts: Record<string, number>;
+  created_count: number;
+  updated_count: number;
+};
+
 export type CalendarOverlay = {
   host_events: HostCalendarEvent[];
   open_windows: OpenSeminarWindow[];
+};
+
+export type SourceHealth = {
+  source_name: string;
+  source_type: string;
+  status: string;
+  page_count: number;
+  event_count: number;
+  samples: string[];
+  error?: string | null;
+  checked_at: string;
 };
 
 export type SeminarSlotTemplate = {
@@ -197,6 +214,10 @@ export function getCalendarOverlay(): Promise<CalendarOverlay> {
   return getJson<CalendarOverlay>("/calendar/overlay?rebuild=true");
 }
 
+export function getSourceHealth(): Promise<SourceHealth[]> {
+  return getJson<SourceHealth[]>("/source-health");
+}
+
 export function getResearchers(): Promise<Researcher[]> {
   return getJson<Researcher[]>("/researchers");
 }
@@ -229,6 +250,18 @@ export async function createDraft(researcherId: string, tripClusterId: string): 
   return getJson<OutreachDraft>("/outreach-drafts", {
     method: "POST",
     body: JSON.stringify({ researcher_id: researcherId, trip_cluster_id: tripClusterId }),
+  });
+}
+
+export async function runExternalIngest(): Promise<IngestResponse> {
+  return getJson<IngestResponse>("/jobs/ingest", {
+    method: "POST",
+  });
+}
+
+export async function runKofCalendarSync(): Promise<IngestResponse> {
+  return getJson<IngestResponse>("/jobs/sync-kof-calendar", {
+    method: "POST",
   });
 }
 

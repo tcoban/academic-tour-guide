@@ -138,6 +138,22 @@ def test_kof_index_discovers_detail_urls() -> None:
     assert all("veranstaltungsarchiv" not in url for url in urls)
 
 
+def test_kof_index_discovers_eth_calendar_api_url() -> None:
+    adapter = KofHostCalendarAdapter()
+    api_url = adapter.discover_api_url(
+        RawPage(
+            url="https://kof.ethz.ch/en/news-und-veranstaltungen/event-calendar-page.html",
+            html="""
+            <div
+              data-init="eventCalendar"
+              data-events-url="https://idapps.ethz.ch/pcm-pub-services/v2/entries?filters%5B0%5D.org-units=02544wd&amp;lang=en">
+            </div>
+            """,
+        )
+    )
+    assert api_url == "https://idapps.ethz.ch/pcm-pub-services/v2/entries?filters%5B0%5D.org-units=02544wd&lang=en"
+
+
 def test_kof_detail_extracts_host_event() -> None:
     adapter = KofHostCalendarAdapter()
     event = adapter.extract_detail(
@@ -149,3 +165,53 @@ def test_kof_detail_extracts_host_event() -> None:
     assert event is not None
     assert event.title == "KOF International Economic Policy Seminar"
     assert event.location == "ETH Zurich, LEE G 116"
+
+
+def test_kof_api_payload_extracts_host_events() -> None:
+    adapter = KofHostCalendarAdapter()
+    events = adapter.extract_api_events(
+        {
+            "entry-array": [
+                {
+                    "id": 76655,
+                    "content": {"title": "KOF Research Seminar- Alena WABITSCH: Incentivizing Inflation Expectations"},
+                    "classification": {
+                        "entry-type-desc": "Seminar",
+                        "series-name": "KOF Research Seminars",
+                    },
+                    "location": {
+                        "internal": {
+                            "area-desc": "Zurich Zentrum",
+                            "building": "LEE",
+                            "floor": "F",
+                            "room": "118",
+                        }
+                    },
+                    "date-time-indication": {
+                        "in-progress-timerange-array": [
+                            {
+                                "date-time-from": "2026-04-29 16:15",
+                                "date-time-to": "2026-04-29 17:30",
+                            }
+                        ]
+                    },
+                    "function-owner-array": [
+                        {
+                            "function-desc": "Speaker",
+                            "first-name": "Alena",
+                            "last-name": "Wabitsch ",
+                            "person-url": "https://www.alenawabitsch.eu/",
+                        }
+                    ],
+                }
+            ]
+        },
+        api_url="https://idapps.ethz.ch/pcm-pub-services/v2/entries",
+        index_url="https://kof.ethz.ch/en/news-and-events/event-calendar-page.html",
+    )
+    assert len(events) == 1
+    assert events[0].starts_at.isoformat().startswith("2026-04-29T16:15:00")
+    assert events[0].ends_at is not None
+    assert events[0].location == "LEE, F, 118, Zurich Zentrum"
+    assert events[0].metadata_json["series_name"] == "KOF Research Seminars"
+    assert events[0].metadata_json["speakers"][0]["last_name"] == "Wabitsch"

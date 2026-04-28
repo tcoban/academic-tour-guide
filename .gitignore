@@ -9,4 +9,5 @@ backend/.coverage
 backend/academic_tour_guide.db
 backend/*.bak
 backend/htmlcov/
+**/run-logs/
 node_modules/

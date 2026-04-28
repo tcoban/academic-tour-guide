@@ -38,9 +38,11 @@ from app.schemas.api import (
     SeminarSlotOverrideRead,
     SeminarSlotTemplateCreate,
     SeminarSlotTemplateRead,
+    SourceHealthRead,
     SourceDocumentRead,
     TripClusterRead,
 )
+from app.services.audit import SourceAuditor
 from app.services.availability import AvailabilityBuilder
 from app.services.enrichment import Biographer, BiographerPipeline
 from app.services.ingestion import IngestionService
@@ -173,6 +175,11 @@ def calendar_overlay(
     host_events = session.scalars(select(HostCalendarEvent).order_by(HostCalendarEvent.starts_at)).all()
     open_windows = session.scalars(select(OpenSeminarWindow).order_by(OpenSeminarWindow.starts_at)).all()
     return CalendarOverlayResponse(host_events=host_events, open_windows=open_windows)
+
+
+@router.get("/source-health", response_model=list[SourceHealthRead])
+def source_health() -> list[dict]:
+    return [asdict(result) for result in SourceAuditor().audit()]
 
 
 @router.get("/review/facts", response_model=list[ReviewFactRead])

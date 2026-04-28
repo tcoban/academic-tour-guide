@@ -258,6 +258,36 @@ a {
   color: var(--accent);
 }
 
+.status-pill.warning {
+  background: rgba(221, 172, 67, 0.16);
+  color: #8b650d;
+}
+
+.source-error {
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(175, 77, 45, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(175, 77, 45, 0.18);
+}
+
+.job-runner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.job-result {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(15, 107, 98, 0.1);
+  color: var(--accent-2);
+}
+
 .facts-grid {
   display: grid;
   gap: 12px;
@@ -355,4 +385,3 @@ textarea {
     flex-direction: column;
   }
 }
-

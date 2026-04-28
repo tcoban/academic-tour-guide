@@ -12,6 +12,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - PostgreSQL-ready SQLAlchemy schema with a SQLite fallback for local development.
 - Alembic baseline migration for repeatable PostgreSQL or SQLite schema setup.
 - Rules-first source adapters for Bocconi, Mannheim, Bonn, ECB, BIS, and KOF.
+- KOF host-calendar sync reads the ETH public calendar JSON feed discovered from the KOF event page and stores those entries as occupied slots.
 - RePEc/IDEAS identity sync with persistent external researcher identities.
 - Institution-linked document discovery for seminar pages, RePEc profiles, public profile pages, CVs, and PDFs.
 - Evidence-backed enrichment with pending fact candidates, approved facts, source documents, and review history.
@@ -25,6 +26,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Researcher detail view with approved facts, pending evidence, source documents, identities, and itinerary context.
 - Review inbox for approving or rejecting extracted fact candidates before outreach.
 - Seminar template and override administration.
+- Source health page for checking live scraper output and zero-event sources.
 - Outreach draft preview for KOF admins.
 
 ## Local Development
@@ -83,5 +85,6 @@ Useful API endpoints:
 - `POST /api/review/facts/{id}/approve`
 - `POST /api/review/facts/{id}/reject`
 - `GET /api/researchers/{id}/documents`
+- `GET /api/source-health`
 
 PDF extraction is enabled through `pypdf`; unsupported or failed documents are recorded as source documents without crashing the refresh pipeline.

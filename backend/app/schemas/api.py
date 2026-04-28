@@ -173,6 +173,17 @@ class CalendarOverlayResponse(BaseModel):
     open_windows: list[OpenSeminarWindowRead]
 
 
+class SourceHealthRead(BaseModel):
+    source_name: str
+    source_type: str
+    status: str
+    page_count: int
+    event_count: int
+    samples: list[str]
+    error: str | None = None
+    checked_at: datetime
+
+
 class EnrichRequest(BaseModel):
     cv_text: str | None = None
     source_url: str | None = None

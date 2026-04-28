@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from app.scraping.sources import get_host_calendar_adapter, iter_source_adapters
 
@@ -8,11 +9,13 @@ from app.scraping.sources import get_host_calendar_adapter, iter_source_adapters
 @dataclass(slots=True)
 class SourceAuditResult:
     source_name: str
+    source_type: str
     status: str
     page_count: int = 0
     event_count: int = 0
     samples: list[str] = field(default_factory=list)
     error: str | None = None
+    checked_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 class SourceAuditor:
@@ -27,6 +30,7 @@ class SourceAuditor:
                 results.append(
                     SourceAuditResult(
                         source_name=adapter.name,
+                        source_type="external_opportunity",
                         status="ok",
                         page_count=len(pages),
                         event_count=len(events),
@@ -40,6 +44,7 @@ class SourceAuditor:
                 results.append(
                     SourceAuditResult(
                         source_name=adapter.name,
+                        source_type="external_opportunity",
                         status="error",
                         error=f"{type(exc).__name__}: {str(exc)[:300]}",
                     )
@@ -51,6 +56,7 @@ class SourceAuditor:
             results.append(
                 SourceAuditResult(
                     source_name=adapter.name,
+                    source_type="host_calendar",
                     status="ok",
                     event_count=len(host_events),
                     samples=[
@@ -63,6 +69,7 @@ class SourceAuditor:
             results.append(
                 SourceAuditResult(
                     source_name=adapter.name,
+                    source_type="host_calendar",
                     status="error",
                     error=f"{type(exc).__name__}: {str(exc)[:300]}",
                 )
