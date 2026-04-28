@@ -435,6 +435,77 @@ a {
   color: white;
 }
 
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.calendar-day {
+  min-height: 190px;
+  padding: 12px;
+  border-radius: 20px;
+  background: rgba(255, 250, 242, 0.78);
+  border: 1px solid rgba(58, 45, 28, 0.1);
+}
+
+.calendar-day-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.calendar-day-heading strong {
+  color: var(--ink);
+}
+
+.calendar-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.calendar-chip {
+  display: grid;
+  gap: 3px;
+  padding: 9px 10px;
+  border-radius: 14px;
+  font-size: 0.82rem;
+  line-height: 1.25;
+}
+
+.calendar-chip span {
+  color: inherit;
+  opacity: 0.82;
+}
+
+.calendar-chip.occupied {
+  background: rgba(175, 77, 45, 0.12);
+  color: var(--accent);
+  border: 1px solid rgba(175, 77, 45, 0.16);
+}
+
+.calendar-chip.open {
+  background: rgba(15, 107, 98, 0.12);
+  color: var(--accent-2);
+  border: 1px solid rgba(15, 107, 98, 0.16);
+}
+
+.calendar-chip.opportunity {
+  background: rgba(221, 172, 67, 0.18);
+  color: #765407;
+  border: 1px solid rgba(221, 172, 67, 0.25);
+}
+
+.calendar-chip.more {
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--muted);
+  border: 1px dashed var(--line);
+}
+
 .button,
 button {
   border: 0;
@@ -497,7 +568,8 @@ textarea {
   .hero,
   .content-grid,
   .dual-grid,
-  .kpi-grid {
+  .kpi-grid,
+  .calendar-grid {
     grid-template-columns: 1fr;
   }
 
