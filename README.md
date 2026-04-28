@@ -29,9 +29,9 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Review inbox for approving or rejecting extracted fact candidates before outreach.
 - Seminar template and override administration.
 - Opportunity workbench for ranking trip clusters, inspecting best KOF slot fit, and seeing whether outreach is draft-ready.
-- Draft library for browsing generated outreach variants and reopening provenance-backed draft previews.
+- Draft library for browsing generated outreach variants, filtering by lifecycle status, and reopening provenance-backed draft previews.
 - Source health page for checking live scraper output, recording audit history, spotting zero-event sources, and surfacing reliability trends.
-- Outreach draft preview for KOF admins with template selection, approved-fact provenance, pre-send checklist, copy, and text export.
+- Outreach draft preview for KOF admins with template selection, approved-fact provenance, pre-send checklist, lifecycle status actions, copy, and text export.
 
 ## Local Development
 
@@ -93,6 +93,7 @@ Useful API endpoints:
 - `GET /api/researchers/{id}/documents`
 - `GET /api/opportunities/workbench`
 - `GET /api/outreach-drafts`
+- `PATCH /api/outreach-drafts/{id}/status`
 - `GET /api/source-health`
 - `POST /api/jobs/audit-sources`
 - `GET /api/source-health/history`

@@ -247,6 +247,12 @@ export type OutreachDraft = {
       status: string;
       detail: string;
     }>;
+    status_history?: Array<{
+      from: string;
+      to: string;
+      note?: string | null;
+      changed_at: string;
+    }>;
   };
   created_at: string;
 };
@@ -338,14 +344,21 @@ export function getDraft(id: string): Promise<OutreachDraft> {
   return getJson<OutreachDraft>(`/outreach-drafts/${id}`);
 }
 
-export function getDrafts(): Promise<OutreachDraftListItem[]> {
-  return getJson<OutreachDraftListItem[]>("/outreach-drafts");
+export function getDrafts(status?: string): Promise<OutreachDraftListItem[]> {
+  return getJson<OutreachDraftListItem[]>(status ? `/outreach-drafts?status=${encodeURIComponent(status)}` : "/outreach-drafts");
 }
 
 export async function createDraft(researcherId: string, tripClusterId: string, templateKey = "concierge"): Promise<OutreachDraft> {
   return getJson<OutreachDraft>("/outreach-drafts", {
     method: "POST",
     body: JSON.stringify({ researcher_id: researcherId, trip_cluster_id: tripClusterId, template_key: templateKey }),
+  });
+}
+
+export async function updateDraftStatus(draftId: string, status: string, note?: string): Promise<OutreachDraft> {
+  return getJson<OutreachDraft>(`/outreach-drafts/${draftId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status, note: note ?? null }),
   });
 }
 

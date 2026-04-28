@@ -106,6 +106,27 @@ def test_daily_catch_and_draft_creation(client, db_session: Session) -> None:
     assert drafts[0]["cluster_score"] == 95
     assert drafts[0]["template_label"] in {"Concierge invitation", "Cost-sharing angle"}
 
+    status_response = client.patch(
+        f"/api/outreach-drafts/{drafts[0]['id']}/status",
+        json={"status": "reviewed", "note": "Ready for admin send"},
+    )
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["status"] == "reviewed"
+    assert status_payload["metadata_json"]["status_history"][-1]["to"] == "reviewed"
+
+    reviewed_response = client.get("/api/outreach-drafts?status=reviewed")
+    assert reviewed_response.status_code == 200
+    reviewed_payload = reviewed_response.json()
+    assert len(reviewed_payload) == 1
+    assert reviewed_payload[0]["status"] == "reviewed"
+
+    bad_status_response = client.patch(
+        f"/api/outreach-drafts/{drafts[0]['id']}/status",
+        json={"status": "emailed"},
+    )
+    assert bad_status_response.status_code == 400
+
 
 def test_enrichment_endpoint_adds_fact(client, db_session: Session) -> None:
     researcher = Researcher(name="Prof. Bruno Test", normalized_name=normalize_name("Prof. Bruno Test"))

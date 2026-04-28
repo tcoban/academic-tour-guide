@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { DraftClipboardActions } from "@/components/draft-clipboard-actions";
+import { DraftStatusActions } from "@/components/draft-status-actions";
 import { Panel } from "@/components/panel";
 import { getDraft } from "@/lib/api";
 
@@ -14,6 +15,7 @@ export default async function DraftPage({ params }: DraftPageProps) {
   const checklist = draft.metadata_json.checklist ?? [];
   const usedFacts = draft.metadata_json.used_facts ?? [];
   const candidateSlot = draft.metadata_json.candidate_slot;
+  const statusHistory = draft.metadata_json.status_history ?? [];
 
   return (
     <div className="stack">
@@ -27,6 +29,7 @@ export default async function DraftPage({ params }: DraftPageProps) {
             <span className={`status-pill ${draft.status === "blocked" ? "blocked" : ""}`}>{draft.status}</span>
             <DraftClipboardActions subject={draft.subject} body={draft.body} />
           </div>
+          <DraftStatusActions currentStatus={draft.status} draftId={draft.id} />
           {draft.blocked_reason ? <p className="fine-print">{draft.blocked_reason}</p> : null}
           <textarea readOnly value={draft.body} />
         </div>
@@ -76,6 +79,24 @@ export default async function DraftPage({ params }: DraftPageProps) {
             <h3>{new Date(candidateSlot.starts_at).toLocaleString()}</h3>
             <p className="muted">Until {new Date(candidateSlot.ends_at).toLocaleString()}</p>
             <p className="fine-print">{candidateSlot.source}</p>
+          </div>
+        </Panel>
+      ) : null}
+
+      {statusHistory.length > 0 ? (
+        <Panel title="Status history" copy="Lifecycle changes are preserved in draft metadata.">
+          <div className="card-list">
+            {statusHistory.map((entry) => (
+              <div className="list-card" key={`${entry.changed_at}-${entry.to}`}>
+                <div className="panel-header">
+                  <h3>
+                    {entry.from} to {entry.to}
+                  </h3>
+                  <span className="status-pill">{new Date(entry.changed_at).toLocaleString()}</span>
+                </div>
+                {entry.note ? <p className="fine-print">{entry.note}</p> : null}
+              </div>
+            ))}
           </div>
         </Panel>
       ) : null}

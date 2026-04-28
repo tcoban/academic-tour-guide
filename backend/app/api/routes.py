@@ -27,6 +27,7 @@ from app.schemas.api import (
     DraftCreate,
     DraftListRead,
     DraftRead,
+    DraftStatusUpdate,
     EnrichRequest,
     FactCandidateRead,
     IngestResponse,
@@ -58,6 +59,7 @@ from app.services.scoring import Scorer
 from app.services.seed import seed_demo_data
 
 router = APIRouter()
+ALLOWED_DRAFT_STATUSES = {"draft", "reviewed", "sent_manually", "archived"}
 
 
 @router.get("/health")
@@ -367,14 +369,26 @@ def create_draft(payload: DraftCreate, session: Session = Depends(session_dep)) 
 @router.get("/outreach-drafts", response_model=list[DraftListRead])
 def list_drafts(
     limit: int = Query(default=50, ge=1, le=200),
+    status_filter: str | None = Query(default=None, alias="status"),
     session: Session = Depends(session_dep),
 ) -> list[DraftListRead]:
-    drafts = session.scalars(
+    query = (
         select(OutreachDraft)
         .options(selectinload(OutreachDraft.researcher), selectinload(OutreachDraft.trip_cluster))
         .order_by(OutreachDraft.created_at.desc())
         .limit(limit)
-    ).all()
+    )
+    if status_filter:
+        if status_filter not in ALLOWED_DRAFT_STATUSES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported draft status filter")
+        query = (
+            select(OutreachDraft)
+            .where(OutreachDraft.status == status_filter)
+            .options(selectinload(OutreachDraft.researcher), selectinload(OutreachDraft.trip_cluster))
+            .order_by(OutreachDraft.created_at.desc())
+            .limit(limit)
+        )
+    drafts = session.scalars(query).all()
     return [
         DraftListRead.model_validate(
             {
@@ -389,6 +403,37 @@ def list_drafts(
         )
         for draft in drafts
     ]
+
+
+@router.patch("/outreach-drafts/{draft_id}/status", response_model=DraftRead)
+def update_draft_status(
+    draft_id: str,
+    payload: DraftStatusUpdate,
+    session: Session = Depends(session_dep),
+) -> OutreachDraft:
+    if payload.status not in ALLOWED_DRAFT_STATUSES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported draft status")
+    draft = session.get(OutreachDraft, draft_id)
+    if not draft:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found")
+
+    metadata = dict(draft.metadata_json or {})
+    history = list(metadata.get("status_history") or [])
+    history.append(
+        {
+            "from": draft.status,
+            "to": payload.status,
+            "note": payload.note,
+            "changed_at": datetime.now(UTC).isoformat(),
+        }
+    )
+    metadata["status_history"] = history
+    draft.status = payload.status
+    draft.metadata_json = metadata
+    session.add(draft)
+    session.commit()
+    session.refresh(draft)
+    return draft
 
 
 @router.get("/outreach-drafts/{draft_id}", response_model=DraftRead)

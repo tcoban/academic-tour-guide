@@ -255,6 +255,11 @@ class DraftCreate(BaseModel):
     template_key: str = "concierge"
 
 
+class DraftStatusUpdate(BaseModel):
+    status: str
+    note: str | None = None
+
+
 class DraftRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

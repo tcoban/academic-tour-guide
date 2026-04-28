@@ -407,6 +407,11 @@ a {
   color: var(--accent-2);
 }
 
+.timeline-chip.selected-chip {
+  background: var(--accent-2);
+  color: white;
+}
+
 .button,
 button {
   border: 0;
