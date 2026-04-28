@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { DraftButton } from "@/components/draft-button";
+import { ManualFactForm } from "@/components/manual-fact-form";
 import { Panel } from "@/components/panel";
 import { ScoreBadge } from "@/components/score-badge";
 import { getResearcher } from "@/lib/api";
@@ -38,6 +39,10 @@ export default async function ResearcherPage({ params }: ResearcherPageProps) {
       </Panel>
 
       <section className="dual-grid">
+        <Panel title="Manual approved facts" copy="Admin-entered facts are approved immediately and can unblock outreach drafts.">
+          <ManualFactForm defaultHomeInstitution={researcher.home_institution} researcherId={researcher.id} />
+        </Panel>
+
         <Panel title="Pending evidence" copy="These candidate facts can influence scoring, but drafts stay blocked until reviewed.">
           <div className="card-list">
             {pendingFacts.length ? (
@@ -55,23 +60,23 @@ export default async function ResearcherPage({ params }: ResearcherPageProps) {
             )}
           </div>
         </Panel>
-
-        <Panel title="Source documents" copy="Institution-linked public pages and profiles used by the biographer pipeline.">
-          <div className="card-list">
-            {researcher.documents.length ? (
-              researcher.documents.map((document) => (
-                <div className="list-card" key={document.id}>
-                  <h3>{document.title || document.url}</h3>
-                  <p className="muted">{document.fetch_status.toUpperCase()} | {document.content_type || "unknown type"}</p>
-                  {document.discovered_from_url ? <p className="fine-print">Discovered from {document.discovered_from_url}</p> : null}
-                </div>
-              ))
-            ) : (
-              <p className="fine-print">No linked source documents have been fetched for this dossier yet.</p>
-            )}
-          </div>
-        </Panel>
       </section>
+
+      <Panel title="Source documents" copy="Institution-linked public pages and profiles used by the biographer pipeline.">
+        <div className="card-list">
+          {researcher.documents.length ? (
+            researcher.documents.map((document) => (
+              <div className="list-card" key={document.id}>
+                <h3>{document.title || document.url}</h3>
+                <p className="muted">{document.fetch_status.toUpperCase()} | {document.content_type || "unknown type"}</p>
+                {document.discovered_from_url ? <p className="fine-print">Discovered from {document.discovered_from_url}</p> : null}
+              </div>
+            ))
+          ) : (
+            <p className="fine-print">No linked source documents have been fetched for this dossier yet.</p>
+          )}
+        </div>
+      </Panel>
 
       <section className="dual-grid">
         <Panel title="Opportunity windows" copy="Trip clusters and score rationale.">

@@ -28,6 +28,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Researcher detail view with approved facts, pending evidence, source documents, identities, and itinerary context.
 - Daily Operator Runbook that summarizes source attention, pending evidence, open KOF windows, draft-ready opportunities, and draft lifecycle follow-up.
 - Golden Window calendar that overlays KOF occupied events, derived open slots, and matched opportunity candidates.
+- Manual approved-fact entry on researcher dossiers for admins to unblock draft eligibility with auditable source notes.
 - Review inbox for approving or rejecting extracted fact candidates before outreach.
 - Seminar template and override administration.
 - Opportunity workbench for ranking trip clusters, inspecting best KOF slot fit, and seeing whether outreach is draft-ready.

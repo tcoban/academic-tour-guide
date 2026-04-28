@@ -222,7 +222,7 @@ class Biographer:
                 value=str(request.birth_month),
                 confidence=0.99,
                 source_url=request.source_url,
-                evidence_snippet="Explicit user-provided birth month.",
+                evidence_snippet=request.evidence_snippet or "Explicit user-provided birth month.",
                 approval_origin="manual",
                 verified=True,
             )
@@ -234,7 +234,7 @@ class Biographer:
                     fact_type="phd_institution",
                     value=request.phd_institution.strip(),
                     confidence=0.95,
-                    evidence_snippet="Explicit user-provided PhD institution.",
+                    evidence_snippet=request.evidence_snippet or "Explicit user-provided PhD institution.",
                     origin="manual",
                 )
             )
@@ -244,7 +244,7 @@ class Biographer:
                     fact_type="nationality",
                     value=request.nationality.strip(),
                     confidence=0.95,
-                    evidence_snippet="Explicit user-provided nationality.",
+                    evidence_snippet=request.evidence_snippet or "Explicit user-provided nationality.",
                     origin="manual",
                 )
             )

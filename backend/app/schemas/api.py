@@ -253,6 +253,7 @@ class OperatorRunbookResponse(BaseModel):
 class EnrichRequest(BaseModel):
     cv_text: str | None = None
     source_url: str | None = None
+    evidence_snippet: str | None = None
     repec_rank: float | None = None
     phd_institution: str | None = None
     nationality: str | None = None

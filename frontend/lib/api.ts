@@ -286,6 +286,17 @@ export type OutreachDraftListItem = OutreachDraft & {
   template_label?: string | null;
 };
 
+export type EnrichResearcherPayload = {
+  cv_text?: string | null;
+  source_url?: string | null;
+  evidence_snippet?: string | null;
+  repec_rank?: number | null;
+  phd_institution?: string | null;
+  nationality?: string | null;
+  home_institution?: string | null;
+  birth_month?: number | null;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
 async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -350,6 +361,13 @@ export function getResearcher(id: string): Promise<ResearcherDetail> {
 
 export function getResearcherDocuments(id: string): Promise<SourceDocument[]> {
   return getJson<SourceDocument[]>(`/researchers/${id}/documents`);
+}
+
+export async function enrichResearcher(id: string, payload: EnrichResearcherPayload): Promise<Researcher> {
+  return getJson<Researcher>(`/researchers/${id}/enrich`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function getReviewQueue(): Promise<ReviewFact[]> {

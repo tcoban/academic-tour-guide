@@ -138,6 +138,7 @@ def test_enrichment_endpoint_adds_fact(client, db_session: Session) -> None:
         json={
             "cv_text": "Nationality: Swiss. PhD in Economics from University of Mannheim.",
             "source_url": "https://cv.example/bruno",
+            "evidence_snippet": "Manual review of Bruno Test CV.",
             "home_institution": "MIT",
         },
     )
@@ -145,6 +146,22 @@ def test_enrichment_endpoint_adds_fact(client, db_session: Session) -> None:
     payload = response.json()
     fact_types = {fact["fact_type"] for fact in payload["facts"]}
     assert {"phd_institution", "nationality"}.issubset(fact_types)
+
+    manual_response = client.post(
+        f"/api/researchers/{researcher.id}/enrich",
+        json={
+            "phd_institution": "University of Zurich",
+            "nationality": "Swiss",
+            "source_url": "https://profile.example/bruno",
+            "evidence_snippet": "Profile lists Swiss nationality and University of Zurich PhD.",
+        },
+    )
+    assert manual_response.status_code == 200
+    manual_payload = manual_response.json()
+    manual_fact = next(fact for fact in manual_payload["facts"] if fact["value"] == "University of Zurich")
+    assert manual_fact["approval_origin"] == "manual"
+    assert manual_fact["verified"] is True
+    assert manual_fact["evidence_snippet"] == "Profile lists Swiss nationality and University of Zurich PhD."
 
 
 def test_source_health_endpoint_reports_audit_results(client, monkeypatch) -> None:
