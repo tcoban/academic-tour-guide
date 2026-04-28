@@ -1,6 +1,6 @@
 import { Panel } from "@/components/panel";
 import { SourceJobRunner } from "@/components/source-job-runner";
-import { getSourceHealth, getSourceHealthHistory } from "@/lib/api";
+import { getSourceHealth, getSourceHealthHistory, getSourceReliability } from "@/lib/api";
 
 function sourceLabel(name: string): string {
   return name
@@ -19,13 +19,24 @@ function healthTone(status: string, eventCount: number): string {
   return "";
 }
 
+function trendTone(needsAttention: boolean, trend: string): string {
+  if (needsAttention) {
+    return "blocked";
+  }
+  if (trend === "new") {
+    return "warning";
+  }
+  return "";
+}
+
 export default async function SourceHealthPage() {
-  const [health, history] = await Promise.all([getSourceHealth(), getSourceHealthHistory()]);
+  const [health, history, reliability] = await Promise.all([getSourceHealth(), getSourceHealthHistory(), getSourceReliability()]);
   const totalEvents = health.reduce((sum, source) => sum + source.event_count, 0);
   const healthySources = health.filter((source) => source.status === "ok" && source.event_count > 0).length;
   const zeroEventSources = health.filter((source) => source.status === "ok" && source.event_count === 0).length;
   const failingSources = health.filter((source) => source.status !== "ok").length;
   const latestHistory = history.slice(0, 12);
+  const attentionSources = reliability.filter((source) => source.needs_attention);
 
   return (
     <div className="stack">
@@ -50,6 +61,10 @@ export default async function SourceHealthPage() {
               <div className="metric-value">{totalEvents}</div>
               <div className="metric-label">Events detected now</div>
             </div>
+            <div className="metric">
+              <div className="metric-value">{attentionSources.length}</div>
+              <div className="metric-label">Sources needing attention</div>
+            </div>
           </div>
         </div>
         <Panel title="What this means" copy="Zero events can mean either no public events or a source that needs a richer adapter.">
@@ -68,6 +83,36 @@ export default async function SourceHealthPage() {
 
       <Panel title="Run sync jobs" copy="Trigger the practical maintenance jobs without leaving the dashboard.">
         <SourceJobRunner />
+      </Panel>
+
+      <Panel title="Reliability analytics" copy="Trend signals come from persisted audit history, not only the live snapshot.">
+        {reliability.length > 0 ? (
+          <div className="history-grid">
+            {reliability.map((source) => (
+              <div className="list-card" key={source.source_name}>
+                <div className="panel-header">
+                  <div>
+                    <h3>{sourceLabel(source.source_name)}</h3>
+                    <p className="muted">
+                      {source.checks_recorded} checks · {(source.success_rate * 100).toFixed(0)}% success
+                    </p>
+                  </div>
+                  <span className={`status-pill ${trendTone(source.needs_attention, source.trend)}`}>{source.trend}</span>
+                </div>
+                <div className="timeline-strip">
+                  <span className="timeline-chip">latest {source.latest_event_count}</span>
+                  <span className="timeline-chip">avg {source.average_event_count}</span>
+                  {source.previous_event_count !== null && source.previous_event_count !== undefined ? (
+                    <span className="timeline-chip">previous {source.previous_event_count}</span>
+                  ) : null}
+                </div>
+                {source.attention_reason ? <p className="fine-print">{source.attention_reason}</p> : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="fine-print">No reliability analytics yet. Record at least one source audit to start the trend line.</p>
+        )}
       </Panel>
 
       <Panel title="Recorded audit history" copy="Recent persisted checks let us spot source degradation instead of relying on one live snapshot.">

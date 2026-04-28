@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
@@ -173,6 +173,53 @@ def test_audit_sources_job_records_results(client, monkeypatch) -> None:
     payload = response.json()
     assert payload[0]["source_name"] == "bocconi"
     assert payload[0]["event_count"] == 6
+
+
+def test_source_health_reliability_flags_degrading_sources(client, db_session: Session) -> None:
+    now = datetime.now(UTC)
+    db_session.add_all(
+        [
+            SourceHealthCheck(
+                source_name="ecb",
+                source_type="external_opportunity",
+                status="ok",
+                page_count=1,
+                event_count=4,
+                samples=["2026-05-01 - Example Speaker"],
+                checked_at=now - timedelta(hours=2),
+            ),
+            SourceHealthCheck(
+                source_name="ecb",
+                source_type="external_opportunity",
+                status="ok",
+                page_count=1,
+                event_count=0,
+                samples=[],
+                checked_at=now,
+            ),
+            SourceHealthCheck(
+                source_name="bis",
+                source_type="external_opportunity",
+                status="ok",
+                page_count=1,
+                event_count=2,
+                samples=["2026-05-26 - Klaus Adam"],
+                checked_at=now,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get("/api/source-health/reliability")
+    assert response.status_code == 200
+    payload = response.json()
+    ecb = next(item for item in payload if item["source_name"] == "ecb")
+    bis = next(item for item in payload if item["source_name"] == "bis")
+    assert ecb["trend"] == "empty"
+    assert ecb["needs_attention"] is True
+    assert ecb["previous_event_count"] == 4
+    assert bis["trend"] == "new"
+    assert bis["needs_attention"] is False
 
 
 def test_opportunity_workbench_returns_best_slot_and_draft_readiness(client, db_session: Session) -> None:

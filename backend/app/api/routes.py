@@ -42,10 +42,11 @@ from app.schemas.api import (
     SeminarSlotTemplateRead,
     SourceHealthHistoryRead,
     SourceHealthRead,
+    SourceReliabilityRead,
     SourceDocumentRead,
     TripClusterRead,
 )
-from app.services.audit import SourceAuditor
+from app.services.audit import SourceAuditor, SourceReliabilityService
 from app.services.availability import AvailabilityBuilder
 from app.services.enrichment import Biographer, BiographerPipeline
 from app.services.ingestion import IngestionService
@@ -216,6 +217,14 @@ def source_health_history(
             .limit(limit)
         )
     return session.scalars(query).all()
+
+
+@router.get("/source-health/reliability", response_model=list[SourceReliabilityRead])
+def source_health_reliability(
+    per_source_limit: int = Query(default=10, ge=1, le=100),
+    session: Session = Depends(session_dep),
+) -> list[dict]:
+    return [asdict(result) for result in SourceReliabilityService().summarize(session, per_source_limit=per_source_limit)]
 
 
 @router.get("/review/facts", response_model=list[ReviewFactRead])

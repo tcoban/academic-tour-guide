@@ -177,6 +177,21 @@ export type SourceHealthRecord = SourceHealth & {
   created_at: string;
 };
 
+export type SourceReliability = {
+  source_name: string;
+  source_type: string;
+  latest_status: string;
+  latest_event_count: number;
+  previous_event_count?: number | null;
+  checks_recorded: number;
+  success_rate: number;
+  average_event_count: number;
+  trend: string;
+  needs_attention: boolean;
+  attention_reason?: string | null;
+  latest_checked_at: string;
+};
+
 export type SeminarSlotTemplate = {
   id: string;
   label: string;
@@ -246,6 +261,10 @@ export function getSourceHealth(): Promise<SourceHealth[]> {
 
 export function getSourceHealthHistory(): Promise<SourceHealthRecord[]> {
   return getJson<SourceHealthRecord[]>("/source-health/history");
+}
+
+export function getSourceReliability(): Promise<SourceReliability[]> {
+  return getJson<SourceReliability[]>("/source-health/reliability");
 }
 
 export function getOpportunityWorkbench(): Promise<OpportunityWorkbench> {

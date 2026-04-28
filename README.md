@@ -29,7 +29,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Review inbox for approving or rejecting extracted fact candidates before outreach.
 - Seminar template and override administration.
 - Opportunity workbench for ranking trip clusters, inspecting best KOF slot fit, and seeing whether outreach is draft-ready.
-- Source health page for checking live scraper output, recording audit history, and spotting zero-event sources.
+- Source health page for checking live scraper output, recording audit history, spotting zero-event sources, and surfacing reliability trends.
 - Outreach draft preview for KOF admins.
 
 ## Local Development
@@ -94,5 +94,6 @@ Useful API endpoints:
 - `GET /api/source-health`
 - `POST /api/jobs/audit-sources`
 - `GET /api/source-health/history`
+- `GET /api/source-health/reliability`
 
 PDF extraction is enabled through `pypdf`; unsupported or failed documents are recorded as source documents without crashing the refresh pipeline.

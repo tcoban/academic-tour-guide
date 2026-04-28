@@ -212,6 +212,21 @@ class SourceHealthHistoryRead(SourceHealthRead):
     created_at: datetime
 
 
+class SourceReliabilityRead(BaseModel):
+    source_name: str
+    source_type: str
+    latest_status: str
+    latest_event_count: int
+    previous_event_count: int | None = None
+    checks_recorded: int
+    success_rate: float
+    average_event_count: float
+    trend: str
+    needs_attention: bool
+    attention_reason: str | None = None
+    latest_checked_at: datetime
+
+
 class EnrichRequest(BaseModel):
     cv_text: str | None = None
     source_url: str | None = None
