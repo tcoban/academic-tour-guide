@@ -16,11 +16,15 @@ from app.models.entities import (
     SeminarSlotTemplate,
     SourceDocument,
     TalkEvent,
+    TourLeg,
+    TripCluster,
+    WishlistEntry,
 )
 from app.services.availability import AvailabilityBuilder
 from app.services.clustering import TripClusterer
 from app.services.enrichment import Biographer, CandidateFact, normalize_name
 from app.services.scoring import Scorer
+from app.services.roadshow import RoadshowService
 
 
 REFERENCE_INSTITUTIONS = [
@@ -32,6 +36,7 @@ REFERENCE_INSTITUTIONS = [
     ("University of Bonn", "Bonn", "Germany", 50.7374, 7.0982),
     ("ECB", "Frankfurt", "Germany", 50.1109, 8.6821),
     ("BIS", "Basel", "Switzerland", 47.5596, 7.5886),
+    ("KOF Swiss Economic Institute", "Zurich", "Switzerland", 47.3769, 8.5417),
 ]
 
 
@@ -87,7 +92,7 @@ def seed_demo_data(session: Session) -> DemoSeedSummary:
         fact_type="phd_institution",
         value="University of Mannheim",
         confidence=0.94,
-        source_url="https://demo.academic-tour-guide.local/elsa-cv",
+        source_url="https://demo.roadshow.local/elsa-cv",
         evidence_snippet="PhD in Economics, University of Mannheim",
         approval_origin="demo_seed",
         verified=True,
@@ -97,7 +102,7 @@ def seed_demo_data(session: Session) -> DemoSeedSummary:
         fact_type="nationality",
         value="German",
         confidence=0.93,
-        source_url="https://demo.academic-tour-guide.local/elsa-cv",
+        source_url="https://demo.roadshow.local/elsa-cv",
         evidence_snippet="Nationality: German",
         approval_origin="demo_seed",
         verified=True,
@@ -111,7 +116,7 @@ def seed_demo_data(session: Session) -> DemoSeedSummary:
         city="Milan",
         country="Italy",
         starts_at=datetime.combine(seminar_date - timedelta(days=2), time(16, 0), tzinfo=tz),
-        url="https://demo.academic-tour-guide.local/events/elsa-bocconi",
+        url="https://demo.roadshow.local/events/elsa-bocconi",
     )
     updated += _upsert_talk_event(
         session,
@@ -122,7 +127,7 @@ def seed_demo_data(session: Session) -> DemoSeedSummary:
         city="Munich",
         country="Germany",
         starts_at=datetime.combine(seminar_date + timedelta(days=3), time(12, 30), tzinfo=tz),
-        url="https://demo.academic-tour-guide.local/events/elsa-munich",
+        url="https://demo.roadshow.local/events/elsa-munich",
     )
 
     pending_researcher, pending_created = _ensure_researcher(
@@ -141,7 +146,7 @@ def seed_demo_data(session: Session) -> DemoSeedSummary:
     source_document = _ensure_source_document(
         session,
         pending_researcher,
-        url="https://demo.academic-tour-guide.local/luca-cv",
+        url="https://demo.roadshow.local/luca-cv",
         title="Luca Pending CV",
         extracted_text=(
             "Luca Pending. Nationality: Swiss. "
@@ -171,14 +176,78 @@ def seed_demo_data(session: Session) -> DemoSeedSummary:
         city="Basel",
         country="Switzerland",
         starts_at=datetime.combine(seminar_date + timedelta(days=1), time(14, 0), tzinfo=tz),
-        url="https://demo.academic-tour-guide.local/events/luca-bis",
+        url="https://demo.roadshow.local/events/luca-bis",
     )
 
     TripClusterer(session).rebuild_all()
     AvailabilityBuilder(session).rebuild_persisted(start_date=seminar_date - timedelta(days=7), horizon_days=45)
     Scorer(session).score_all_clusters()
+    _ensure_roadshow_demo(session, approved_researcher)
     session.flush()
     return DemoSeedSummary(processed_count=2, created_count=created, updated_count=updated)
+
+
+def _ensure_roadshow_demo(session: Session, researcher: Researcher) -> None:
+    service = RoadshowService(session)
+    kof = service.ensure_kof_institution()
+    service.update_institution_profile(
+        kof,
+        {
+            "wishlist_topics": ["macro networks", "regional policy"],
+            "procurement_notes": "KOF-first Roadshow pilot. Keep contract, payment, and travel booking manual for v1.",
+            "po_threshold_chf": 5000,
+            "grant_code_support": True,
+            "coordinator_contacts": [{"name": "KOF Seminar Desk", "role": "Coordinator", "email": "seminars@example.invalid"}],
+            "av_notes": "Seminar room supports hybrid recording by request.",
+            "hospitality_notes": "Prefer rail arrivals into Zurich HB when feasible.",
+            "host_quality_score": 88.0,
+        },
+    )
+    service.update_speaker_profile(
+        researcher,
+        {
+            "topics": ["macro networks", "regional policy", "expectations"],
+            "fee_floor_chf": 3500,
+            "notice_period_days": 21,
+            "travel_preferences": {"rail_first_under_hours": 4, "home_airport": "JFK"},
+            "rider": {"hotel_tier": "business", "dietary": "vegetarian option"},
+            "availability_notes": "Prefers talks clustered into compact European legs.",
+            "communication_preferences": {"tone": "concise", "channel": "email"},
+            "consent_status": "pre_consent",
+            "verification_status": "shadow",
+        },
+    )
+    brief = service.ensure_relationship_brief(researcher.id, kof.id)
+    service.update_relationship_brief(
+        brief,
+        {
+            "summary": "Demo memory: strong fit for KOF macro seminar audience; keep logistics framed as a Zurich add-on.",
+            "communication_preferences": {"tone": "warm and concise"},
+            "decision_patterns": {"likely_hooks": ["DACH visit", "cost split", "compact itinerary"]},
+            "relationship_history": [{"type": "demo_seed", "detail": "No real prior outreach. Use as placeholder memory."}],
+            "operational_memory": {"venue": "KOF main seminar room"},
+            "forward_signals": {"rebook_intent": "unknown"},
+        },
+    )
+    trip_cluster = session.scalar(
+        select(TripCluster).where(TripCluster.researcher_id == researcher.id).order_by(TripCluster.opportunity_score.desc())
+    )
+    if trip_cluster and not session.scalar(select(TourLeg).where(TourLeg.trip_cluster_id == trip_cluster.id)):
+        service.propose_tour_leg(trip_cluster)
+    if not session.scalar(select(WishlistEntry).where(WishlistEntry.institution_id == kof.id, WishlistEntry.researcher_id == researcher.id)):
+        service.create_wishlist_entry(
+            {
+                "institution_id": kof.id,
+                "researcher_id": researcher.id,
+                "speaker_name": researcher.name,
+                "topic": "macro networks",
+                "priority": 90,
+                "status": "active",
+                "notes": "Founding KOF Roadshow wishlist entry seeded for the demo.",
+                "metadata_json": {"source": "demo_seed"},
+            }
+        )
+    service.refresh_wishlist_alerts()
 
 
 def _next_weekday(start_date, weekday: int, min_days: int):
@@ -227,7 +296,7 @@ def _ensure_demo_host_event(session: Session, seminar_date, tz: ZoneInfo) -> int
             location="KOF Zurich",
             starts_at=starts_at,
             ends_at=starts_at + timedelta(hours=1, minutes=15),
-            url="https://demo.academic-tour-guide.local/kof/internal-workshop",
+            url="https://demo.roadshow.local/kof/internal-workshop",
             source_hash=source_hash,
             metadata_json={"source": "demo"},
         )

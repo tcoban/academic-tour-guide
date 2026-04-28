@@ -4,24 +4,32 @@ from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, desc, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import session_dep
 from app.models.entities import (
+    AuditEvent,
     FactCandidate,
+    FeedbackSignal,
     HostCalendarEvent,
+    Institution,
     OpenSeminarWindow,
     OutreachDraft,
+    RelationshipBrief,
     Researcher,
     SeminarSlotOverride,
     SeminarSlotTemplate,
     SourceHealthCheck,
     SourceDocument,
     TalkEvent,
+    TourLeg,
     TripCluster,
+    WishlistAlert,
+    WishlistEntry,
 )
 from app.schemas.api import (
+    AuditEventRead,
     CalendarOverlayResponse,
     DailyCatchResponse,
     DraftCreate,
@@ -30,10 +38,17 @@ from app.schemas.api import (
     DraftStatusUpdate,
     EnrichRequest,
     FactCandidateRead,
+    FeedbackSignalCreate,
+    FeedbackSignalRead,
     IngestResponse,
+    InstitutionRead,
+    InstitutionProfileRead,
+    InstitutionProfileUpdate,
     JobRunResponse,
     OperatorRunbookResponse,
     OpportunityWorkbenchResponse,
+    RelationshipBriefRead,
+    RelationshipBriefUpdate,
     ResearcherDetailRead,
     ResearcherJobRequest,
     ResearcherRead,
@@ -48,7 +63,14 @@ from app.schemas.api import (
     SourceHealthRead,
     SourceReliabilityRead,
     SourceDocumentRead,
+    SpeakerProfileRead,
+    SpeakerProfileUpdate,
+    TourLegProposalRequest,
+    TourLegRead,
     TripClusterRead,
+    WishlistAlertRead,
+    WishlistEntryCreate,
+    WishlistEntryRead,
 )
 from app.services.audit import SourceAuditor, SourceReliabilityService
 from app.services.availability import AvailabilityBuilder
@@ -57,6 +79,7 @@ from app.services.ingestion import IngestionService
 from app.services.outreach import DraftGenerator, ReviewRequiredError
 from app.services.opportunities import OpportunityWorkbench
 from app.services.review import FactReviewService
+from app.services.roadshow import RoadshowService
 from app.services.scoring import Scorer
 from app.services.seed import seed_demo_data
 
@@ -300,6 +323,228 @@ def enrich_researcher(researcher_id: str, payload: EnrichRequest, session: Sessi
     session.commit()
     session.refresh(enriched)
     return enriched
+
+
+@router.get("/institutions", response_model=list[InstitutionRead])
+def list_institutions(session: Session = Depends(session_dep)) -> list[Institution]:
+    RoadshowService(session).ensure_kof_institution()
+    session.commit()
+    return session.scalars(select(Institution).order_by(Institution.name)).all()
+
+
+@router.get("/speakers/{researcher_id}/profile", response_model=SpeakerProfileRead)
+def get_speaker_profile(researcher_id: str, session: Session = Depends(session_dep)):
+    researcher = session.scalar(
+        select(Researcher).where(Researcher.id == researcher_id).options(selectinload(Researcher.speaker_profile))
+    )
+    if not researcher:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
+    profile = RoadshowService(session).ensure_speaker_profile(researcher)
+    session.commit()
+    return profile
+
+
+@router.patch("/speakers/{researcher_id}/profile", response_model=SpeakerProfileRead)
+def update_speaker_profile(
+    researcher_id: str,
+    payload: SpeakerProfileUpdate,
+    session: Session = Depends(session_dep),
+):
+    researcher = session.scalar(
+        select(Researcher).where(Researcher.id == researcher_id).options(selectinload(Researcher.speaker_profile))
+    )
+    if not researcher:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
+    profile = RoadshowService(session).update_speaker_profile(researcher, payload.model_dump())
+    session.commit()
+    session.refresh(profile)
+    return profile
+
+
+@router.get("/institutions/{institution_id}/profile", response_model=InstitutionProfileRead)
+def get_institution_profile(institution_id: str, session: Session = Depends(session_dep)):
+    institution = session.scalar(
+        select(Institution).where(Institution.id == institution_id).options(selectinload(Institution.roadshow_profile))
+    )
+    if not institution:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
+    profile = RoadshowService(session).ensure_institution_profile(institution)
+    session.commit()
+    return profile
+
+
+@router.patch("/institutions/{institution_id}/profile", response_model=InstitutionProfileRead)
+def update_institution_profile(
+    institution_id: str,
+    payload: InstitutionProfileUpdate,
+    session: Session = Depends(session_dep),
+):
+    institution = session.scalar(
+        select(Institution).where(Institution.id == institution_id).options(selectinload(Institution.roadshow_profile))
+    )
+    if not institution:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
+    profile = RoadshowService(session).update_institution_profile(institution, payload.model_dump())
+    session.commit()
+    session.refresh(profile)
+    return profile
+
+
+@router.get("/wishlist", response_model=list[WishlistEntryRead])
+def list_wishlist(session: Session = Depends(session_dep)) -> list[WishlistEntry]:
+    RoadshowService(session).ensure_kof_institution()
+    session.commit()
+    return session.scalars(select(WishlistEntry).order_by(WishlistEntry.priority.desc(), WishlistEntry.created_at.desc())).all()
+
+
+@router.post("/wishlist", response_model=WishlistEntryRead)
+def create_wishlist_entry(payload: WishlistEntryCreate, session: Session = Depends(session_dep)) -> WishlistEntry:
+    if not session.get(Institution, payload.institution_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
+    if payload.researcher_id and not session.get(Researcher, payload.researcher_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
+    entry = RoadshowService(session).create_wishlist_entry(payload.model_dump())
+    session.commit()
+    session.refresh(entry)
+    return entry
+
+
+@router.patch("/wishlist/{entry_id}", response_model=WishlistEntryRead)
+def update_wishlist_entry(
+    entry_id: str,
+    payload: WishlistEntryCreate,
+    session: Session = Depends(session_dep),
+) -> WishlistEntry:
+    entry = session.get(WishlistEntry, entry_id)
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist entry not found")
+    if not session.get(Institution, payload.institution_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
+    if payload.researcher_id and not session.get(Researcher, payload.researcher_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
+    RoadshowService(session).update_wishlist_entry(entry, payload.model_dump())
+    session.commit()
+    session.refresh(entry)
+    return entry
+
+
+@router.delete("/wishlist/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_wishlist_entry(entry_id: str, session: Session = Depends(session_dep)) -> None:
+    entry = session.get(WishlistEntry, entry_id)
+    if not entry:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist entry not found")
+    RoadshowService(session).delete_wishlist_entry(entry)
+    session.commit()
+
+
+@router.get("/wishlist-alerts", response_model=list[WishlistAlertRead])
+def list_wishlist_alerts(session: Session = Depends(session_dep)) -> list[WishlistAlertRead]:
+    RoadshowService(session).refresh_wishlist_alerts()
+    session.commit()
+    alerts = session.scalars(
+        select(WishlistAlert)
+        .options(
+            selectinload(WishlistAlert.researcher),
+            selectinload(WishlistAlert.wishlist_entry).selectinload(WishlistEntry.institution),
+        )
+        .order_by(WishlistAlert.status, desc(WishlistAlert.score), WishlistAlert.created_at.desc())
+    ).all()
+    return [
+        WishlistAlertRead.model_validate(
+            {
+                **WishlistAlertRead.model_validate(alert).model_dump(),
+                "researcher_name": alert.researcher.name if alert.researcher else None,
+                "institution_name": alert.wishlist_entry.institution.name if alert.wishlist_entry and alert.wishlist_entry.institution else None,
+            }
+        )
+        for alert in alerts
+    ]
+
+
+@router.post("/tour-legs/propose", response_model=TourLegRead)
+def propose_tour_leg(payload: TourLegProposalRequest, session: Session = Depends(session_dep)) -> TourLeg:
+    cluster = session.scalar(
+        select(TripCluster)
+        .where(TripCluster.id == payload.trip_cluster_id)
+        .options(selectinload(TripCluster.researcher).selectinload(Researcher.speaker_profile))
+    )
+    if not cluster:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trip cluster not found")
+    try:
+        tour_leg = RoadshowService(session).propose_tour_leg(cluster, fee_per_stop_chf=payload.fee_per_stop_chf)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    session.commit()
+    return session.scalar(select(TourLeg).where(TourLeg.id == tour_leg.id).options(selectinload(TourLeg.stops)))
+
+
+@router.get("/tour-legs", response_model=list[TourLegRead])
+def list_tour_legs(session: Session = Depends(session_dep)) -> list[TourLeg]:
+    return session.scalars(select(TourLeg).options(selectinload(TourLeg.stops)).order_by(TourLeg.created_at.desc())).all()
+
+
+@router.get("/tour-legs/{tour_leg_id}", response_model=TourLegRead)
+def get_tour_leg(tour_leg_id: str, session: Session = Depends(session_dep)) -> TourLeg:
+    tour_leg = session.scalar(select(TourLeg).where(TourLeg.id == tour_leg_id).options(selectinload(TourLeg.stops)))
+    if not tour_leg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour leg not found")
+    return tour_leg
+
+
+@router.get("/relationship-briefs/{speaker_id}/{institution_id}", response_model=RelationshipBriefRead)
+def get_relationship_brief(speaker_id: str, institution_id: str, session: Session = Depends(session_dep)) -> RelationshipBrief:
+    if not session.get(Researcher, speaker_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
+    if not session.get(Institution, institution_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
+    brief = RoadshowService(session).ensure_relationship_brief(speaker_id, institution_id)
+    session.commit()
+    return brief
+
+
+@router.patch("/relationship-briefs/{speaker_id}/{institution_id}", response_model=RelationshipBriefRead)
+def update_relationship_brief(
+    speaker_id: str,
+    institution_id: str,
+    payload: RelationshipBriefUpdate,
+    session: Session = Depends(session_dep),
+) -> RelationshipBrief:
+    if not session.get(Researcher, speaker_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
+    if not session.get(Institution, institution_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
+    service = RoadshowService(session)
+    brief = service.ensure_relationship_brief(speaker_id, institution_id)
+    service.update_relationship_brief(brief, payload.model_dump())
+    session.commit()
+    session.refresh(brief)
+    return brief
+
+
+@router.post("/feedback-signals", response_model=FeedbackSignalRead)
+def create_feedback_signal(payload: FeedbackSignalCreate, session: Session = Depends(session_dep)) -> FeedbackSignal:
+    if not session.get(Researcher, payload.researcher_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
+    if not session.get(Institution, payload.institution_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
+    if payload.tour_leg_id and not session.get(TourLeg, payload.tour_leg_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour leg not found")
+    signal = RoadshowService(session).create_feedback_signal(payload.model_dump())
+    session.commit()
+    session.refresh(signal)
+    return signal
+
+
+@router.get("/audit-events", response_model=list[AuditEventRead])
+def list_audit_events(
+    entity_type: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    session: Session = Depends(session_dep),
+) -> list[AuditEvent]:
+    query = select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(limit)
+    if entity_type:
+        query = select(AuditEvent).where(AuditEvent.entity_type == entity_type).order_by(AuditEvent.created_at.desc()).limit(limit)
+    return session.scalars(query).all()
 
 
 @router.get("/trip-clusters", response_model=list[TripClusterRead])

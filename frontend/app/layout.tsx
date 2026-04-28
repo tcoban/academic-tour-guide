@@ -16,8 +16,8 @@ const manrope = Manrope({
 });
 
 export const metadata: Metadata = {
-  title: "Academic Tour Guide",
-  description: "KOF opportunity scoring and concierge outreach dashboard.",
+  title: "Roadshow",
+  description: "KOF-first academic tour concierge and opportunity desk.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
@@ -27,14 +27,16 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
         <div className="app-shell">
           <header className="topbar">
             <div className="brand">
-              <span className="brand-title">Academic Tour Guide</span>
+              <span className="brand-title">Roadshow</span>
               <span className="brand-subtitle">
-                Scrape the European seminar circuit, score invitation windows, and give KOF a concierge-grade outreach desk.
+                Scout the European seminar circuit, model tour legs, and give KOF a concierge-grade Roadshow desk.
               </span>
             </div>
             <nav className="nav-links">
               <Link href="/">Daily Catch</Link>
               <Link href="/runbook">Runbook</Link>
+              <Link href="/wishlist">Wishlist</Link>
+              <Link href="/tour-legs">Tour Legs</Link>
               <Link href="/calendar">Calendar</Link>
               <Link href="/opportunities">Opportunities</Link>
               <Link href="/drafts">Drafts</Link>

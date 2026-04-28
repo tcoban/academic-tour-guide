@@ -73,7 +73,7 @@ export function DraftStatusActions({ draftId, currentStatus, checklist = [] }: D
       {currentStatus === "reviewed" ? (
         <label className="inline-check">
           <input checked={sendConfirmed} onChange={(event) => setSendConfirmed(event.target.checked)} type="checkbox" />
-          I confirm this draft was sent manually outside Academic Tour Guide.
+          I confirm this draft was sent manually outside Roadshow.
         </label>
       ) : null}
 

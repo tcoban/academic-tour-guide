@@ -41,6 +41,12 @@ class Institution(Base):
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
+    roadshow_profile: Mapped["InstitutionProfile | None"] = relationship(
+        back_populates="institution",
+        cascade="all, delete-orphan",
+    )
+    wishlist_entries: Mapped[list["WishlistEntry"]] = relationship(back_populates="institution")
+
 
 class Researcher(Base):
     __tablename__ = "researchers"
@@ -71,6 +77,93 @@ class Researcher(Base):
     talk_events: Mapped[list["TalkEvent"]] = relationship(back_populates="researcher")
     trip_clusters: Mapped[list["TripCluster"]] = relationship(back_populates="researcher")
     outreach_drafts: Mapped[list["OutreachDraft"]] = relationship(back_populates="researcher")
+    speaker_profile: Mapped["SpeakerProfile | None"] = relationship(
+        back_populates="researcher",
+        cascade="all, delete-orphan",
+    )
+    wishlist_entries: Mapped[list["WishlistEntry"]] = relationship(back_populates="researcher")
+    tour_legs: Mapped[list["TourLeg"]] = relationship(back_populates="researcher")
+    relationship_briefs: Mapped[list["RelationshipBrief"]] = relationship(back_populates="researcher")
+    feedback_signals: Mapped[list["FeedbackSignal"]] = relationship(back_populates="researcher")
+
+
+class SpeakerProfile(Base):
+    __tablename__ = "speaker_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), unique=True, index=True)
+    topics: Mapped[list[str]] = mapped_column(JSON, default=list)
+    fee_floor_chf: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notice_period_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    travel_preferences: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    rider: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    availability_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    communication_preferences: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    consent_status: Mapped[str] = mapped_column(String(64), default="pre_consent", index=True)
+    verification_status: Mapped[str] = mapped_column(String(64), default="shadow", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    researcher: Mapped["Researcher"] = relationship(back_populates="speaker_profile")
+
+
+class InstitutionProfile(Base):
+    __tablename__ = "institution_profiles"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    institution_id: Mapped[str] = mapped_column(ForeignKey("institutions.id"), unique=True, index=True)
+    wishlist_topics: Mapped[list[str]] = mapped_column(JSON, default=list)
+    procurement_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    po_threshold_chf: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    grant_code_support: Mapped[bool] = mapped_column(Boolean, default=False)
+    coordinator_contacts: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    av_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hospitality_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    host_quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    institution: Mapped["Institution"] = relationship(back_populates="roadshow_profile")
+
+
+class WishlistEntry(Base):
+    __tablename__ = "wishlist_entries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    institution_id: Mapped[str] = mapped_column(ForeignKey("institutions.id"), index=True)
+    researcher_id: Mapped[str | None] = mapped_column(ForeignKey("researchers.id"), nullable=True, index=True)
+    speaker_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    topic: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=50)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    institution: Mapped["Institution"] = relationship(back_populates="wishlist_entries")
+    researcher: Mapped["Researcher | None"] = relationship(back_populates="wishlist_entries")
+    alerts: Mapped[list["WishlistAlert"]] = relationship(back_populates="wishlist_entry", cascade="all, delete-orphan")
+
+
+class WishlistAlert(Base):
+    __tablename__ = "wishlist_alerts"
+    __table_args__ = (UniqueConstraint("wishlist_entry_id", "trip_cluster_id", name="uq_wishlist_alert_entry_cluster"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    wishlist_entry_id: Mapped[str] = mapped_column(ForeignKey("wishlist_entries.id"), index=True)
+    researcher_id: Mapped[str | None] = mapped_column(ForeignKey("researchers.id"), nullable=True, index=True)
+    trip_cluster_id: Mapped[str | None] = mapped_column(ForeignKey("trip_clusters.id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="new", index=True)
+    match_reason: Mapped[str] = mapped_column(Text)
+    score: Mapped[int] = mapped_column(Integer, default=0)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    wishlist_entry: Mapped["WishlistEntry"] = relationship(back_populates="alerts")
+    researcher: Mapped["Researcher | None"] = relationship()
+    trip_cluster: Mapped["TripCluster | None"] = relationship()
 
 
 class ResearcherIdentity(Base):
@@ -220,6 +313,110 @@ class TripCluster(Base):
 
     researcher: Mapped["Researcher"] = relationship(back_populates="trip_clusters")
     drafts: Mapped[list["OutreachDraft"]] = relationship(back_populates="trip_cluster")
+    tour_legs: Mapped[list["TourLeg"]] = relationship(back_populates="trip_cluster")
+
+
+class TourLeg(Base):
+    __tablename__ = "tour_legs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
+    trip_cluster_id: Mapped[str | None] = mapped_column(ForeignKey("trip_clusters.id"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(32), default="proposed", index=True)
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    estimated_fee_total_chf: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_travel_total_chf: Mapped[int] = mapped_column(Integer, default=0)
+    cost_split_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    rationale: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    researcher: Mapped["Researcher"] = relationship(back_populates="tour_legs")
+    trip_cluster: Mapped["TripCluster | None"] = relationship(back_populates="tour_legs")
+    stops: Mapped[list["TourStop"]] = relationship(
+        back_populates="tour_leg",
+        cascade="all, delete-orphan",
+        order_by="TourStop.sequence",
+    )
+    feedback_signals: Mapped[list["FeedbackSignal"]] = relationship(back_populates="tour_leg")
+
+
+class TourStop(Base):
+    __tablename__ = "tour_stops"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tour_leg_id: Mapped[str] = mapped_column(ForeignKey("tour_legs.id"), index=True)
+    institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), nullable=True, index=True)
+    open_window_id: Mapped[str | None] = mapped_column(ForeignKey("open_seminar_windows.id"), nullable=True, index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    city: Mapped[str] = mapped_column(String(120))
+    country: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    format: Mapped[str] = mapped_column(String(64), default="seminar")
+    fee_chf: Mapped[int] = mapped_column(Integer, default=0)
+    travel_share_chf: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(32), default="candidate", index=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    tour_leg: Mapped["TourLeg"] = relationship(back_populates="stops")
+    institution: Mapped["Institution | None"] = relationship()
+    open_window: Mapped["OpenSeminarWindow | None"] = relationship()
+
+
+class RelationshipBrief(Base):
+    __tablename__ = "relationship_briefs"
+    __table_args__ = (UniqueConstraint("researcher_id", "institution_id", name="uq_relationship_brief_researcher_institution"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
+    institution_id: Mapped[str] = mapped_column(ForeignKey("institutions.id"), index=True)
+    summary: Mapped[str] = mapped_column(Text, default="")
+    communication_preferences: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    decision_patterns: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    relationship_history: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    operational_memory: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    forward_signals: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    researcher: Mapped["Researcher"] = relationship(back_populates="relationship_briefs")
+    institution: Mapped["Institution"] = relationship()
+
+
+class FeedbackSignal(Base):
+    __tablename__ = "feedback_signals"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
+    institution_id: Mapped[str] = mapped_column(ForeignKey("institutions.id"), index=True)
+    tour_leg_id: Mapped[str | None] = mapped_column(ForeignKey("tour_legs.id"), nullable=True, index=True)
+    party: Mapped[str] = mapped_column(String(64), index=True)
+    signal_type: Mapped[str] = mapped_column(String(120), index=True)
+    value: Mapped[str] = mapped_column(String(255))
+    sentiment_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    researcher: Mapped["Researcher"] = relationship(back_populates="feedback_signals")
+    institution: Mapped["Institution"] = relationship()
+    tour_leg: Mapped["TourLeg | None"] = relationship(back_populates="feedback_signals")
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    event_type: Mapped[str] = mapped_column(String(120), index=True)
+    actor_type: Mapped[str] = mapped_column(String(64), default="system", index=True)
+    actor_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    entity_type: Mapped[str] = mapped_column(String(120), index=True)
+    entity_id: Mapped[str] = mapped_column(String(120), index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
 
 
 class HostCalendarEvent(Base):

@@ -48,7 +48,7 @@ def run(command: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Academic Tour Guide worker")
+    parser = argparse.ArgumentParser(description="Roadshow worker")
     parser.add_argument(
         "command",
         choices=["ingest", "sync-host", "repec-sync", "biographer-refresh", "seed-demo", "rebuild", "audit-sources"],

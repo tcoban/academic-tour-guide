@@ -7,7 +7,7 @@ import os
 
 @dataclass(slots=True)
 class Settings:
-    app_name: str = "Academic Tour Guide"
+    app_name: str = "Roadshow"
     api_prefix: str = "/api"
     default_timezone: str = "Europe/Zurich"
     cors_origins: tuple[str, ...] = ("http://localhost:3000", "http://127.0.0.1:3000")
@@ -18,7 +18,7 @@ class Settings:
 
     @property
     def access_token(self) -> str | None:
-        return os.getenv("ATG_API_ACCESS_TOKEN") or None
+        return os.getenv("ROADSHOW_API_ACCESS_TOKEN") or os.getenv("ATG_API_ACCESS_TOKEN") or None
 
     @property
     def database_url(self) -> str:

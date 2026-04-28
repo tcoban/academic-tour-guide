@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 export function middleware(request: NextRequest) {
-  const password = process.env.ATG_APP_PASSWORD;
+  const password = process.env.ROADSHOW_APP_PASSWORD ?? process.env.ATG_APP_PASSWORD;
   if (!password) {
     return NextResponse.next();
   }
@@ -23,7 +23,7 @@ export function middleware(request: NextRequest) {
   return new NextResponse("Authentication required", {
     status: 401,
     headers: {
-      "WWW-Authenticate": 'Basic realm="Academic Tour Guide"',
+      "WWW-Authenticate": 'Basic realm="Roadshow"',
     },
   });
 }

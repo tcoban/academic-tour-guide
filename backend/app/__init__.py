@@ -1,2 +1,1 @@
-"""Academic Tour Guide backend package."""
-
+"""Roadshow backend package."""

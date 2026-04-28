@@ -5,7 +5,8 @@ import { ManualFactForm } from "@/components/manual-fact-form";
 import { Panel } from "@/components/panel";
 import { ResearcherRefreshActions } from "@/components/researcher-refresh-actions";
 import { ScoreBadge } from "@/components/score-badge";
-import { getResearcher } from "@/lib/api";
+import { TourLegButton } from "@/components/tour-leg-button";
+import { getInstitutions, getRelationshipBrief, getResearcher, getSpeakerProfile } from "@/lib/api";
 
 type ResearcherPageProps = {
   params: Promise<{ id: string }>;
@@ -13,7 +14,9 @@ type ResearcherPageProps = {
 
 export default async function ResearcherPage({ params }: ResearcherPageProps) {
   const { id } = await params;
-  const researcher = await getResearcher(id);
+  const [researcher, speakerProfile, institutions] = await Promise.all([getResearcher(id), getSpeakerProfile(id), getInstitutions()]);
+  const kof = institutions.find((institution) => institution.name.includes("KOF")) ?? institutions[0];
+  const relationshipBrief = kof ? await getRelationshipBrief(id, kof.id) : null;
 
   const approvedFacts = researcher.facts;
   const pendingFacts = researcher.fact_candidates.filter((candidate) => candidate.status === "pending");
@@ -38,6 +41,48 @@ export default async function ResearcherPage({ params }: ResearcherPageProps) {
           ))}
         </div>
       </Panel>
+
+      <section className="dual-grid">
+        <Panel title="Roadshow speaker profile" copy="Touring preferences and rider notes used by Relations Manager.">
+          <div className="card-list">
+            <div className="list-card">
+              <h3>Topics</h3>
+              <p className="muted">{speakerProfile.topics.length ? speakerProfile.topics.join(", ") : "No topics captured yet"}</p>
+            </div>
+            <div className="list-card">
+              <h3>Commercial and timing guardrails</h3>
+              <p className="muted">
+                Fee floor {speakerProfile.fee_floor_chf ? `CHF ${speakerProfile.fee_floor_chf}` : "pending"} | Notice{" "}
+                {speakerProfile.notice_period_days ?? "pending"} days
+              </p>
+              <p className="fine-print">
+                {speakerProfile.verification_status} | {speakerProfile.consent_status}
+              </p>
+            </div>
+            <div className="list-card">
+              <h3>Rider and travel</h3>
+              <p className="fine-print">{JSON.stringify({ travel: speakerProfile.travel_preferences, rider: speakerProfile.rider })}</p>
+            </div>
+          </div>
+        </Panel>
+
+        <Panel title="KOF relationship memory" copy="Compact Relations Manager brief for this speaker-institution pair.">
+          {relationshipBrief ? (
+            <div className="card-list">
+              <div className="list-card">
+                <h3>Summary</h3>
+                <p className="muted">{relationshipBrief.summary}</p>
+              </div>
+              <div className="list-card">
+                <h3>Forward signals</h3>
+                <p className="fine-print">{JSON.stringify(relationshipBrief.forward_signals)}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="fine-print">No KOF institution profile is available yet.</p>
+          )}
+        </Panel>
+      </section>
 
       <section className="dual-grid">
         <Panel title="Dossier refresh" copy="Run researcher-scoped identity and evidence jobs without leaving the dossier.">
@@ -116,7 +161,10 @@ export default async function ResearcherPage({ params }: ResearcherPageProps) {
                     </span>
                   ))}
                 </div>
-                <DraftButton researcherId={researcher.id} clusterId={cluster.id} />
+                <div className="template-actions">
+                  <DraftButton researcherId={researcher.id} clusterId={cluster.id} />
+                  <TourLegButton clusterId={cluster.id} />
+                </div>
               </div>
             ))}
           </div>

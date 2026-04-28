@@ -1,7 +1,7 @@
 [project]
-name = "academic-tour-guide-backend"
+name = "roadshow-backend"
 version = "0.1.0"
-description = "FastAPI backend for Academic Tour Guide."
+description = "FastAPI backend for Roadshow."
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.14.0",

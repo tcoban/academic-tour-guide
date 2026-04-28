@@ -4,9 +4,12 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
+from sqlalchemy import inspect
 
+from app.core.config import settings
 from app.models.entities import (
     FactCandidate,
+    Institution,
     OpenSeminarWindow,
     Researcher,
     ResearcherFact,
@@ -581,3 +584,122 @@ def test_seminar_admin_can_update_and_delete_templates_and_overrides(client, db_
     assert override_response.json()["status"] == "open"
     assert delete_template_response.status_code == 204
     assert delete_override_response.status_code == 204
+
+
+def test_roadshow_branding_and_tables_exist(db_session: Session) -> None:
+    assert settings.app_name == "Roadshow"
+    table_names = set(inspect(db_session.bind).get_table_names())
+    assert {
+        "speaker_profiles",
+        "institution_profiles",
+        "wishlist_entries",
+        "wishlist_alerts",
+        "tour_legs",
+        "tour_stops",
+        "relationship_briefs",
+        "feedback_signals",
+        "audit_events",
+    }.issubset(table_names)
+
+
+def test_roadshow_profiles_wishlist_tour_leg_feedback_and_audit(client, db_session: Session) -> None:
+    researcher_id, cluster_id = seed_researcher_graph(db_session)
+    kof = db_session.query(Institution).filter(Institution.name == "KOF Swiss Economic Institute").one()
+
+    speaker_profile_response = client.get(f"/api/speakers/{researcher_id}/profile")
+    speaker_update_response = client.patch(
+        f"/api/speakers/{researcher_id}/profile",
+        json={
+            "topics": ["macro networks", "regional policy"],
+            "fee_floor_chf": 4200,
+            "notice_period_days": 21,
+            "travel_preferences": {"rail_first_under_hours": 4},
+            "rider": {"hotel_tier": "business"},
+            "availability_notes": "Prefers compact European legs.",
+            "communication_preferences": {"tone": "concise"},
+            "consent_status": "pre_consent",
+            "verification_status": "shadow",
+        },
+    )
+    institution_update_response = client.patch(
+        f"/api/institutions/{kof.id}/profile",
+        json={
+            "wishlist_topics": ["macro networks"],
+            "procurement_notes": "Keep v1 below PO threshold.",
+            "po_threshold_chf": 5000,
+            "grant_code_support": True,
+            "coordinator_contacts": [{"name": "KOF Desk"}],
+            "av_notes": "Hybrid ready.",
+            "hospitality_notes": "Rail arrivals preferred.",
+            "host_quality_score": 90,
+        },
+    )
+    wishlist_response = client.post(
+        "/api/wishlist",
+        json={
+            "institution_id": kof.id,
+            "researcher_id": researcher_id,
+            "speaker_name": "Prof. Elsa Example",
+            "topic": "macro networks",
+            "priority": 95,
+            "status": "active",
+            "notes": "Anchor Roadshow target.",
+            "metadata_json": {},
+        },
+    )
+    alerts_response = client.get("/api/wishlist-alerts")
+    tour_leg_response = client.post("/api/tour-legs/propose", json={"trip_cluster_id": cluster_id, "fee_per_stop_chf": 3500})
+    tour_leg_payload = tour_leg_response.json()
+    relationship_response = client.patch(
+        f"/api/relationship-briefs/{researcher_id}/{kof.id}",
+        json={
+            "summary": "Strong KOF fit; lead with compact itinerary and cost split.",
+            "communication_preferences": {"tone": "warm"},
+            "decision_patterns": {"hooks": ["cost split"]},
+            "relationship_history": [],
+            "operational_memory": {"venue": "KOF"},
+            "forward_signals": {},
+        },
+    )
+    feedback_response = client.post(
+        "/api/feedback-signals",
+        json={
+            "researcher_id": researcher_id,
+            "institution_id": kof.id,
+            "tour_leg_id": tour_leg_payload["id"],
+            "party": "institution",
+            "signal_type": "rebook_intent",
+            "value": "strong",
+            "sentiment_score": 0.8,
+            "notes": "Admin captured after demo.",
+            "metadata_json": {},
+        },
+    )
+    refreshed_relationship_response = client.get(f"/api/relationship-briefs/{researcher_id}/{kof.id}")
+    audit_response = client.get("/api/audit-events")
+
+    assert speaker_profile_response.status_code == 200
+    assert speaker_update_response.status_code == 200
+    assert speaker_update_response.json()["fee_floor_chf"] == 4200
+    assert institution_update_response.status_code == 200
+    assert institution_update_response.json()["grant_code_support"] is True
+    assert wishlist_response.status_code == 200
+    assert alerts_response.status_code == 200
+    assert alerts_response.json()[0]["researcher_name"] == "Prof. Elsa Example"
+    assert "explicitly on the KOF Roadshow wishlist" in alerts_response.json()[0]["match_reason"]
+    assert tour_leg_response.status_code == 200
+    assert tour_leg_payload["cost_split_json"]["deterministic"] is True
+    assert tour_leg_payload["cost_split_json"]["co_booking_stop_count"] == 3
+    assert any(stop["city"] == "Zurich" and stop["format"] == "kof_seminar" for stop in tour_leg_payload["stops"])
+    assert relationship_response.status_code == 200
+    assert feedback_response.status_code == 200
+    assert refreshed_relationship_response.json()["forward_signals"]["rebook_intent"] == "strong"
+    assert {event["event_type"] for event in audit_response.json()} >= {
+        "speaker_profile.updated",
+        "institution_profile.updated",
+        "wishlist_entry.created",
+        "wishlist_alert.created",
+        "tour_leg.proposed",
+        "relationship_brief.updated",
+        "feedback_signal.created",
+    }

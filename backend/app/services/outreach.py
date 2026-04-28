@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.entities import OpenSeminarWindow, OutreachDraft, Researcher, TripCluster
+from app.models.entities import Institution, OpenSeminarWindow, OutreachDraft, RelationshipBrief, Researcher, SpeakerProfile, TripCluster
 from app.services.enrichment import best_fact, best_fact_candidate
 from app.services.logistics import CostSharingCalculator
 from app.services.opportunities import OpportunityWorkbench
+from app.services.roadshow import KOF_INSTITUTION_NAME
 
 
 class ReviewRequiredError(RuntimeError):
@@ -65,6 +67,7 @@ class DraftGenerator:
         hook = self._build_hook(researcher, cluster, phd_fact.value, nationality_fact.value, template_key)
         subject = template["subject"]
         checklist = self._build_checklist(researcher, cluster, matching_window)
+        roadshow_context = self._roadshow_context(researcher)
         metadata = {
             "template_key": template_key if template_key in TEMPLATES else "concierge",
             "template_label": template["label"],
@@ -82,9 +85,11 @@ class DraftGenerator:
                 matching_window=matching_window,
                 cost_share=cost_share,
                 template_label=template["label"],
+                roadshow_context=roadshow_context,
             ),
             "itinerary": cluster.itinerary,
             "checklist": checklist,
+            "roadshow_context": roadshow_context,
             "approved_fact_gate": True,
         }
         body = self._build_body(
@@ -95,6 +100,7 @@ class DraftGenerator:
             matching_window=matching_window,
             cost_share=cost_share,
             checklist=checklist,
+            roadshow_context=roadshow_context,
         )
 
         draft = OutreachDraft(
@@ -136,6 +142,7 @@ class DraftGenerator:
         matching_window: OpenSeminarWindow | None,
         cost_share: dict | None,
         checklist: list[dict],
+        roadshow_context: dict,
     ) -> str:
         itinerary_cities = ", ".join(item["city"] for item in cluster.itinerary) or "Europe"
         last_name = researcher.name.split()[-1]
@@ -160,6 +167,8 @@ class DraftGenerator:
             f"- Home institution: {researcher.home_institution or 'Unknown'}\n"
             f"- Opportunity score: {cluster.opportunity_score}\n"
             f"- Existing itinerary: {itinerary_cities}\n"
+            f"- Roadshow relationship memory: {roadshow_context['relationship_summary']}\n"
+            f"- Speaker preference/rider check: {roadshow_context['preference_summary']}\n"
             + (
                 f"- Candidate KOF slot: {matching_window.starts_at.isoformat()} to {matching_window.ends_at.isoformat()}\n"
                 if matching_window
@@ -216,6 +225,7 @@ class DraftGenerator:
         matching_window: OpenSeminarWindow | None,
         cost_share: dict | None,
         template_label: str,
+        roadshow_context: dict,
     ) -> list[dict]:
         brief = [
             {
@@ -233,6 +243,14 @@ class DraftGenerator:
             {
                 "label": "Suggested ask",
                 "detail": "Invite for a KOF seminar stop, but keep wording conditional pending admin schedule confirmation.",
+            },
+            {
+                "label": "Relationship memory",
+                "detail": roadshow_context["relationship_summary"],
+            },
+            {
+                "label": "Preference/rider check",
+                "detail": roadshow_context["preference_summary"],
             },
         ]
         if matching_window:
@@ -254,6 +272,43 @@ class DraftGenerator:
                 }
             )
         return brief
+
+    def _roadshow_context(self, researcher: Researcher) -> dict:
+        profile = researcher.speaker_profile or self.session.scalar(
+            select(SpeakerProfile).where(SpeakerProfile.researcher_id == researcher.id)
+        )
+        kof = self.session.scalar(select(Institution).where(Institution.name == KOF_INSTITUTION_NAME))
+        relationship_summary = "No prior Roadshow relationship memory yet."
+        if kof:
+            brief = self.session.scalar(
+                select(RelationshipBrief).where(
+                    RelationshipBrief.researcher_id == researcher.id,
+                    RelationshipBrief.institution_id == kof.id,
+                )
+            )
+            if brief and brief.summary:
+                relationship_summary = brief.summary
+
+        preference_summary = "No Roadshow speaker preferences or rider notes captured yet."
+        if profile:
+            fragments: list[str] = []
+            if profile.notice_period_days is not None:
+                fragments.append(f"{profile.notice_period_days}-day notice preference")
+            if profile.fee_floor_chf is not None:
+                fragments.append(f"fee floor CHF {profile.fee_floor_chf}")
+            if profile.travel_preferences:
+                fragments.append(f"travel preferences: {profile.travel_preferences}")
+            if profile.rider:
+                fragments.append(f"rider: {profile.rider}")
+            if profile.availability_notes:
+                fragments.append(f"availability notes: {profile.availability_notes}")
+            if fragments:
+                preference_summary = "; ".join(fragments)
+
+        return {
+            "relationship_summary": relationship_summary,
+            "preference_summary": preference_summary,
+        }
 
     def _build_checklist(self, researcher: Researcher, cluster: TripCluster, matching_window: OpenSeminarWindow | None) -> list[dict]:
         return [

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { DraftButton } from "@/components/draft-button";
 import { Panel } from "@/components/panel";
 import { ScoreBadge } from "@/components/score-badge";
+import { TourLegButton } from "@/components/tour-leg-button";
 import { getOpportunityWorkbench } from "@/lib/api";
 
 function formatDateTime(value: string): string {
@@ -39,8 +40,8 @@ export default async function OpportunitiesPage() {
     <div className="stack">
       <section className="hero">
         <div className="hero-card">
-          <span className="eyebrow">Opportunity Workbench</span>
-          <h1 className="hero-title">Turn trip clusters into invite decisions.</h1>
+          <span className="eyebrow">Roadshow Workbench</span>
+          <h1 className="hero-title">Turn Scout clusters into invite decisions.</h1>
           <p className="hero-copy">
             Each card combines the researcher&apos;s European window, the best currently open KOF slot, draft readiness, and the score rationale
             that got it onto the shortlist.
@@ -171,6 +172,7 @@ export default async function OpportunitiesPage() {
                   Latest draft
                 </Link>
               ) : null}
+              <TourLegButton clusterId={item.cluster.id} />
               {item.draft_ready ? (
                 <div className="template-actions">
                   <DraftButton researcherId={item.researcher.id} clusterId={item.cluster.id} label="Concierge" templateKey="concierge" />

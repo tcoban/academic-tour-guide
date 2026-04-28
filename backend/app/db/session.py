@@ -24,20 +24,29 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 
 def init_db() -> None:
     from app.models.entities import (  # noqa: F401
+        AuditEvent,
         FactCandidate,
+        FeedbackSignal,
         HostCalendarEvent,
         Institution,
+        InstitutionProfile,
         OpenSeminarWindow,
         OutreachDraft,
+        RelationshipBrief,
         Researcher,
         ResearcherFact,
         ResearcherIdentity,
         SeminarSlotOverride,
         SeminarSlotTemplate,
+        SpeakerProfile,
         SourceHealthCheck,
         SourceDocument,
         TalkEvent,
+        TourLeg,
+        TourStop,
         TripCluster,
+        WishlistAlert,
+        WishlistEntry,
     )
 
     Base.metadata.create_all(bind=engine)

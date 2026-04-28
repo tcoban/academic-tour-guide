@@ -37,7 +37,7 @@ async def require_api_access_token(request: Request, call_next):
     if access_token and request.url.path.startswith(settings.api_prefix) and request.url.path != f"{settings.api_prefix}/health":
         provided = request.headers.get("x-atg-api-key")
         if provided != access_token:
-            return JSONResponse({"detail": "Academic Tour Guide API access token required."}, status_code=401)
+            return JSONResponse({"detail": "Roadshow API access token required."}, status_code=401)
     return await call_next(request)
 
 

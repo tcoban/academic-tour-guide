@@ -69,14 +69,22 @@ def best_fact(researcher: Researcher, fact_type: str) -> ResearcherFact | None:
     matches = [fact for fact in researcher.facts if fact.fact_type == fact_type]
     if not matches:
         return None
-    return max(matches, key=lambda fact: (fact.verified, fact.confidence, fact.approved_at))
+    return max(matches, key=lambda fact: (fact.verified, fact.confidence, _sortable_datetime(fact.approved_at)))
 
 
 def best_fact_candidate(researcher: Researcher, fact_type: str, statuses: tuple[str, ...] = ("pending", "approved")) -> FactCandidate | None:
     matches = [candidate for candidate in researcher.fact_candidates if candidate.fact_type == fact_type and candidate.status in statuses]
     if not matches:
         return None
-    return max(matches, key=lambda candidate: (candidate.status == "approved", candidate.confidence, candidate.created_at))
+    return max(matches, key=lambda candidate: (candidate.status == "approved", candidate.confidence, _sortable_datetime(candidate.created_at)))
+
+
+def _sortable_datetime(value: datetime | None) -> float:
+    if value is None:
+        return 0.0
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.timestamp()
 
 
 @dataclass(slots=True)

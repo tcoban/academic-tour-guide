@@ -330,8 +330,151 @@ export type EnrichResearcherPayload = {
   birth_month?: number | null;
 };
 
+export type Institution = {
+  id: string;
+  name: string;
+  city?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  metadata_json: Record<string, unknown>;
+};
+
+export type SpeakerProfile = {
+  id: string;
+  researcher_id: string;
+  topics: string[];
+  fee_floor_chf?: number | null;
+  notice_period_days?: number | null;
+  travel_preferences: Record<string, unknown>;
+  rider: Record<string, unknown>;
+  availability_notes?: string | null;
+  communication_preferences: Record<string, unknown>;
+  consent_status: string;
+  verification_status: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InstitutionProfile = {
+  id: string;
+  institution_id: string;
+  wishlist_topics: string[];
+  procurement_notes?: string | null;
+  po_threshold_chf?: number | null;
+  grant_code_support: boolean;
+  coordinator_contacts: Array<Record<string, unknown>>;
+  av_notes?: string | null;
+  hospitality_notes?: string | null;
+  host_quality_score?: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WishlistEntry = {
+  id: string;
+  institution_id: string;
+  researcher_id?: string | null;
+  speaker_name?: string | null;
+  topic?: string | null;
+  priority: number;
+  status: string;
+  notes?: string | null;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WishlistAlert = {
+  id: string;
+  wishlist_entry_id: string;
+  researcher_id?: string | null;
+  trip_cluster_id?: string | null;
+  status: string;
+  match_reason: string;
+  score: number;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  resolved_at?: string | null;
+  researcher_name?: string | null;
+  institution_name?: string | null;
+};
+
+export type TourStop = {
+  id: string;
+  tour_leg_id: string;
+  institution_id?: string | null;
+  open_window_id?: string | null;
+  sequence: number;
+  city: string;
+  country?: string | null;
+  starts_at?: string | null;
+  format: string;
+  fee_chf: number;
+  travel_share_chf: number;
+  status: string;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+};
+
+export type TourLeg = {
+  id: string;
+  researcher_id: string;
+  trip_cluster_id?: string | null;
+  title: string;
+  status: string;
+  start_date: string;
+  end_date: string;
+  estimated_fee_total_chf: number;
+  estimated_travel_total_chf: number;
+  cost_split_json: Record<string, unknown>;
+  rationale: Array<Record<string, unknown>>;
+  created_at: string;
+  updated_at: string;
+  stops: TourStop[];
+};
+
+export type RelationshipBrief = {
+  id: string;
+  researcher_id: string;
+  institution_id: string;
+  summary: string;
+  communication_preferences: Record<string, unknown>;
+  decision_patterns: Record<string, unknown>;
+  relationship_history: Array<Record<string, unknown>>;
+  operational_memory: Record<string, unknown>;
+  forward_signals: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FeedbackSignal = {
+  id: string;
+  researcher_id: string;
+  institution_id: string;
+  tour_leg_id?: string | null;
+  party: string;
+  signal_type: string;
+  value: string;
+  sentiment_score?: number | null;
+  notes?: string | null;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+};
+
+export type AuditEvent = {
+  id: string;
+  event_type: string;
+  actor_type: string;
+  actor_id?: string | null;
+  entity_type: string;
+  entity_id: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
-const API_ACCESS_TOKEN = process.env.NEXT_PUBLIC_API_ACCESS_TOKEN;
+const API_ACCESS_TOKEN = process.env.NEXT_PUBLIC_ROADSHOW_API_ACCESS_TOKEN ?? process.env.NEXT_PUBLIC_API_ACCESS_TOKEN;
 
 async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -393,8 +536,134 @@ export function getResearchers(): Promise<Researcher[]> {
   return getJson<Researcher[]>("/researchers");
 }
 
+export function getInstitutions(): Promise<Institution[]> {
+  return getJson<Institution[]>("/institutions");
+}
+
 export function getResearcher(id: string): Promise<ResearcherDetail> {
   return getJson<ResearcherDetail>(`/researchers/${id}`);
+}
+
+export function getSpeakerProfile(id: string): Promise<SpeakerProfile> {
+  return getJson<SpeakerProfile>(`/speakers/${id}/profile`);
+}
+
+export async function updateSpeakerProfile(id: string, payload: Omit<SpeakerProfile, "id" | "researcher_id" | "created_at" | "updated_at">): Promise<SpeakerProfile> {
+  return getJson<SpeakerProfile>(`/speakers/${id}/profile`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getInstitutionProfile(id: string): Promise<InstitutionProfile> {
+  return getJson<InstitutionProfile>(`/institutions/${id}/profile`);
+}
+
+export async function updateInstitutionProfile(
+  id: string,
+  payload: Omit<InstitutionProfile, "id" | "institution_id" | "created_at" | "updated_at">,
+): Promise<InstitutionProfile> {
+  return getJson<InstitutionProfile>(`/institutions/${id}/profile`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getWishlist(): Promise<WishlistEntry[]> {
+  return getJson<WishlistEntry[]>("/wishlist");
+}
+
+export function getWishlistAlerts(): Promise<WishlistAlert[]> {
+  return getJson<WishlistAlert[]>("/wishlist-alerts");
+}
+
+export async function createWishlistEntry(payload: {
+  institution_id: string;
+  researcher_id?: string | null;
+  speaker_name?: string | null;
+  topic?: string | null;
+  priority: number;
+  status: string;
+  notes?: string | null;
+  metadata_json?: Record<string, unknown>;
+}): Promise<WishlistEntry> {
+  return getJson<WishlistEntry>("/wishlist", {
+    method: "POST",
+    body: JSON.stringify({ ...payload, metadata_json: payload.metadata_json ?? {} }),
+  });
+}
+
+export async function updateWishlistEntry(entryId: string, payload: {
+  institution_id: string;
+  researcher_id?: string | null;
+  speaker_name?: string | null;
+  topic?: string | null;
+  priority: number;
+  status: string;
+  notes?: string | null;
+  metadata_json?: Record<string, unknown>;
+}): Promise<WishlistEntry> {
+  return getJson<WishlistEntry>(`/wishlist/${entryId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ ...payload, metadata_json: payload.metadata_json ?? {} }),
+  });
+}
+
+export async function deleteWishlistEntry(entryId: string): Promise<void> {
+  await getJson<void>(`/wishlist/${entryId}`, {
+    method: "DELETE",
+  });
+}
+
+export function getTourLegs(): Promise<TourLeg[]> {
+  return getJson<TourLeg[]>("/tour-legs");
+}
+
+export function getTourLeg(id: string): Promise<TourLeg> {
+  return getJson<TourLeg>(`/tour-legs/${id}`);
+}
+
+export async function proposeTourLeg(tripClusterId: string, feePerStopChf = 3500): Promise<TourLeg> {
+  return getJson<TourLeg>("/tour-legs/propose", {
+    method: "POST",
+    body: JSON.stringify({ trip_cluster_id: tripClusterId, fee_per_stop_chf: feePerStopChf }),
+  });
+}
+
+export function getRelationshipBrief(speakerId: string, institutionId: string): Promise<RelationshipBrief> {
+  return getJson<RelationshipBrief>(`/relationship-briefs/${speakerId}/${institutionId}`);
+}
+
+export async function updateRelationshipBrief(
+  speakerId: string,
+  institutionId: string,
+  payload: Omit<RelationshipBrief, "id" | "researcher_id" | "institution_id" | "created_at" | "updated_at">,
+): Promise<RelationshipBrief> {
+  return getJson<RelationshipBrief>(`/relationship-briefs/${speakerId}/${institutionId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createFeedbackSignal(payload: {
+  researcher_id: string;
+  institution_id: string;
+  tour_leg_id?: string | null;
+  party: string;
+  signal_type: string;
+  value: string;
+  sentiment_score?: number | null;
+  notes?: string | null;
+  metadata_json?: Record<string, unknown>;
+}): Promise<FeedbackSignal> {
+  return getJson<FeedbackSignal>("/feedback-signals", {
+    method: "POST",
+    body: JSON.stringify({ ...payload, metadata_json: payload.metadata_json ?? {} }),
+  });
+}
+
+export function getAuditEvents(): Promise<AuditEvent[]> {
+  return getJson<AuditEvent[]>("/audit-events");
 }
 
 export function getResearcherDocuments(id: string): Promise<SourceDocument[]> {

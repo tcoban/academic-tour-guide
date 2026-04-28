@@ -45,7 +45,7 @@ export default async function SourceHealthPage() {
           <span className="eyebrow">Operational Radar</span>
           <h1 className="hero-title">Know which ears are actually hearing.</h1>
           <p className="hero-copy">
-            This live audit fetches each pilot source, runs the parser, and shows whether Academic Tour Guide is extracting current events or
+            This live audit fetches each pilot source, runs the parser, and shows whether Roadshow is extracting current events or
             needs adapter attention.
           </p>
           <div className="kpi-grid">

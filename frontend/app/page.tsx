@@ -2,14 +2,16 @@ import Link from "next/link";
 
 import { Panel } from "@/components/panel";
 import { ScoreBadge } from "@/components/score-badge";
-import { getCalendarOverlay, getDailyCatch, getResearchers, getReviewQueue } from "@/lib/api";
+import { getCalendarOverlay, getDailyCatch, getResearchers, getReviewQueue, getTourLegs, getWishlistAlerts } from "@/lib/api";
 
 export default async function HomePage() {
-  const [dailyCatch, overlay, researchers, reviewQueue] = await Promise.all([
+  const [dailyCatch, overlay, researchers, reviewQueue, tourLegs, wishlistAlerts] = await Promise.all([
     getDailyCatch(),
     getCalendarOverlay(),
     getResearchers(),
     getReviewQueue(),
+    getTourLegs(),
+    getWishlistAlerts(),
   ]);
 
   const topScore = dailyCatch.top_clusters[0]?.opportunity_score ?? 0;
@@ -18,11 +20,11 @@ export default async function HomePage() {
     <>
       <section className="hero">
         <div className="hero-card">
-          <span className="eyebrow">Logistical Oracle</span>
-          <h1 className="hero-title">Where Europe&apos;s seminar trail meets Zurich precision.</h1>
+          <span className="eyebrow">KOF Roadshow</span>
+          <h1 className="hero-title">Where Europe&apos;s seminar trail becomes a tour leg.</h1>
           <p className="hero-copy">
-            Academic Tour Guide listens to external seminar hubs, maps biographic hooks, and turns the KOF calendar into invitation-ready
-            windows with a human-reviewed draft on the other side.
+            Roadshow listens through Scout, models KOF as a smart Zurich stop, and turns biographic evidence, slot fit, wishlist demand, and
+            cost split into a concierge-ready invitation workflow.
           </p>
           <div className="kpi-grid">
             <div className="metric">
@@ -38,8 +40,16 @@ export default async function HomePage() {
               <div className="metric-label">Top current opportunity score</div>
             </div>
             <div className="metric">
+              <div className="metric-value">{wishlistAlerts.length}</div>
+              <div className="metric-label">Wishlist alerts</div>
+            </div>
+            <div className="metric">
+              <div className="metric-value">{tourLegs.length}</div>
+              <div className="metric-label">Modeled tour legs</div>
+            </div>
+            <div className="metric">
               <div className="metric-value">{reviewQueue.length}</div>
-              <div className="metric-label">Pending review items</div>
+              <div className="metric-label">Pending evidence reviews</div>
             </div>
           </div>
         </div>
@@ -61,7 +71,7 @@ export default async function HomePage() {
       </section>
 
       <section className="content-grid">
-        <Panel title="Trip clusters" copy="Ranked by Zurich-specific invitation fit.">
+        <Panel title="Scout clusters" copy="Ranked by Zurich-specific invitation fit.">
           <div className="card-list">
             {dailyCatch.top_clusters.map((cluster) => (
               <div className="list-card" key={cluster.id}>
@@ -119,7 +129,7 @@ export default async function HomePage() {
           </div>
         </Panel>
 
-        <Panel title="Researcher ledger" copy="Evidence-backed profiles and itinerary context.">
+        <Panel title="Speaker ledger" copy="Evidence-backed profiles and itinerary context.">
           <div className="card-list">
             {researchers.map((researcher) => (
               <div className="list-card" key={researcher.id}>
