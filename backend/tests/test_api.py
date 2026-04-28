@@ -88,6 +88,13 @@ def test_daily_catch_and_draft_creation(client, db_session: Session) -> None:
     assert "Biographic hook" in draft_payload["body"]
     assert draft_payload["metadata_json"]["template_key"] == "concierge"
     assert {fact["fact_type"] for fact in draft_payload["metadata_json"]["used_facts"]} == {"phd_institution", "nationality"}
+    assert draft_payload["metadata_json"]["cost_share"]["recommendation"] == "strong"
+    assert draft_payload["metadata_json"]["cost_share"]["estimated_savings_chf"] > 0
+    assert {item["label"] for item in draft_payload["metadata_json"]["send_brief"]} >= {
+        "Biographic hook",
+        "Logistics angle",
+        "Suggested ask",
+    }
     assert any(item["label"] == "Open KOF slot selected" for item in draft_payload["metadata_json"]["checklist"])
 
     cost_share_response = client.post(
@@ -96,7 +103,9 @@ def test_daily_catch_and_draft_creation(client, db_session: Session) -> None:
     )
     assert cost_share_response.status_code == 200
     assert cost_share_response.json()["metadata_json"]["template_key"] == "cost_share"
+    assert cost_share_response.json()["metadata_json"]["cost_share"]["recommended_mode"] == "rail"
     assert "cost-sharing" in cost_share_response.json()["body"]
+    assert "Cost-sharing estimate" in cost_share_response.json()["body"]
 
     list_response = client.get("/api/outreach-drafts")
     assert list_response.status_code == 200
@@ -432,6 +441,9 @@ def test_opportunity_workbench_returns_best_slot_and_draft_readiness(client, db_
     assert opportunity["best_window"]["within_scoring_window"] is True
     assert opportunity["itinerary_cities"] == ["Milan", "Munich"]
     assert opportunity["draft_count"] == 0
+    assert opportunity["cost_share"]["nearest_itinerary_city"] == "Milan"
+    assert opportunity["cost_share"]["recommended_mode"] == "rail"
+    assert opportunity["cost_share"]["estimated_savings_chf"] > opportunity["cost_share"]["multi_city_incremental_chf"]
 
 
 def test_operator_runbook_summarizes_daily_admin_work(client, db_session: Session) -> None:

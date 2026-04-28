@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import settings
 from app.models.entities import HostCalendarEvent, OpenSeminarWindow, OutreachDraft, Researcher, TripCluster
 from app.services.enrichment import best_fact, best_fact_candidate
+from app.services.logistics import CostSharingCalculator
 from app.services.scoring import ensure_timezone
 
 
@@ -24,6 +25,7 @@ class SlotMatch:
 class OpportunityWorkbench:
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.cost_sharing = CostSharingCalculator()
 
     def build(self, limit: int = 25) -> dict:
         windows = self.session.scalars(select(OpenSeminarWindow).order_by(OpenSeminarWindow.starts_at)).all()
@@ -55,6 +57,7 @@ class OpportunityWorkbench:
             "cluster": cluster,
             "researcher": researcher,
             "best_window": self._match_payload(match) if match else None,
+            "cost_share": self.cost_sharing.estimate(cluster, researcher, match.window if match else None),
             "itinerary_cities": [item["city"] for item in cluster.itinerary],
             "draft_ready": len(blockers) == 0,
             "draft_blockers": blockers,

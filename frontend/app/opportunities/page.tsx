@@ -19,6 +19,16 @@ function fitCopy(fitType: string, distanceDays: number): string {
   return `${fitType.replace("_", " ")} by ${distanceDays} days`;
 }
 
+function recommendationTone(recommendation: string): string {
+  if (recommendation === "strong") {
+    return "";
+  }
+  if (recommendation === "moderate") {
+    return "warning";
+  }
+  return "blocked";
+}
+
 export default async function OpportunitiesPage() {
   const workbench = await getOpportunityWorkbench();
   const draftReady = workbench.opportunities.filter((item) => item.draft_ready).length;
@@ -105,6 +115,31 @@ export default async function OpportunitiesPage() {
                 </div>
               ) : (
                 <p className="fine-print">No open KOF slot is currently available.</p>
+              )}
+            </div>
+
+            <div className="opportunity-section">
+              <h3>Cost-sharing calculator</h3>
+              {item.cost_share ? (
+                <div className="slot-card">
+                  <div>
+                    <strong>
+                      CHF {item.cost_share.multi_city_incremental_chf} add-on vs CHF {item.cost_share.baseline_round_trip_chf} standalone
+                    </strong>
+                    <p className="muted">
+                      Nearest stop: {item.cost_share.nearest_itinerary_city} ({item.cost_share.nearest_distance_km} km,{" "}
+                      {item.cost_share.recommended_mode})
+                    </p>
+                    <p className="fine-print">
+                      Estimated savings CHF {item.cost_share.estimated_savings_chf} | ROI {item.cost_share.roi_percent}%
+                    </p>
+                  </div>
+                  <span className={`status-pill ${recommendationTone(item.cost_share.recommendation)}`}>
+                    {item.cost_share.recommendation}
+                  </span>
+                </div>
+              ) : (
+                <p className="fine-print">No cost-sharing estimate is available without a recognized itinerary city.</p>
               )}
             </div>
 

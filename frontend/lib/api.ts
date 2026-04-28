@@ -130,10 +130,24 @@ export type MatchedOpenWindow = OpenSeminarWindow & {
   within_scoring_window: boolean;
 };
 
+export type CostShareEstimate = {
+  baseline_round_trip_chf: number;
+  multi_city_incremental_chf: number;
+  estimated_savings_chf: number;
+  roi_percent: number;
+  nearest_itinerary_city: string;
+  nearest_distance_km: number;
+  recommended_mode: string;
+  recommendation: string;
+  assumption_notes: string[];
+  slot_starts_at?: string | null;
+};
+
 export type OpportunityCard = {
   cluster: TripCluster;
   researcher: Researcher;
   best_window?: MatchedOpenWindow | null;
+  cost_share?: CostShareEstimate | null;
   itinerary_cities: string[];
   draft_ready: boolean;
   draft_blockers: string[];
@@ -275,10 +289,15 @@ export type OutreachDraft = {
       source: string;
       metadata_json: Record<string, unknown>;
     } | null;
+    cost_share?: CostShareEstimate | null;
     itinerary?: TripCluster["itinerary"];
     checklist?: Array<{
       label: string;
       status: string;
+      detail: string;
+    }>;
+    send_brief?: Array<{
+      label: string;
       detail: string;
     }>;
     status_history?: Array<{

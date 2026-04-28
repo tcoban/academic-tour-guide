@@ -18,6 +18,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Institution-linked document discovery for seminar pages, RePEc profiles, public profile pages, CVs, and PDFs.
 - Evidence-backed enrichment with pending fact candidates, approved facts, source documents, and review history.
 - Availability engine that derives open seminar windows from recurring templates minus KOF occupied events and manual overrides.
+- Cost-sharing calculator that compares a standalone Zurich round trip with a Zurich add-on from the existing European itinerary.
 - Opportunity scoring tuned to Zurich-specific alumni and DACH travel patterns, with explicit flags when a score uses unreviewed evidence.
 - Opportunity workbench API that matches ranked trip clusters to the best open KOF slot and exposes draft-readiness blockers.
 - Outreach draft generation gated on approved biographic evidence.
@@ -33,9 +34,10 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Review inbox for filtering, editing, approving, rejecting, and auditing extracted fact candidates before outreach.
 - Seminar template and override administration.
 - Opportunity workbench for ranking trip clusters, inspecting best KOF slot fit, and seeing whether outreach is draft-ready.
+- Cost-sharing estimates on opportunity cards and draft previews.
 - Draft library for browsing generated outreach variants, filtering by lifecycle status, and reopening provenance-backed draft previews.
 - Source health page for checking live scraper output, recording audit history, spotting zero-event sources, and surfacing reliability trends.
-- Outreach draft preview for KOF admins with template selection, approved-fact provenance, pre-send checklist, lifecycle status actions, copy, and text export.
+- Outreach draft preview for KOF admins with template selection, approved-fact provenance, send brief, pre-send checklist, lifecycle status actions, copy, and text export.
 
 ## Local Development
 

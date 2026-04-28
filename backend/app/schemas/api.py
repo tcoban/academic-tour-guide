@@ -179,10 +179,24 @@ class MatchedOpenWindowRead(OpenSeminarWindowRead):
     within_scoring_window: bool
 
 
+class CostShareEstimateRead(BaseModel):
+    baseline_round_trip_chf: int
+    multi_city_incremental_chf: int
+    estimated_savings_chf: int
+    roi_percent: int
+    nearest_itinerary_city: str
+    nearest_distance_km: int
+    recommended_mode: str
+    recommendation: str
+    assumption_notes: list[str]
+    slot_starts_at: str | None = None
+
+
 class OpportunityCardRead(BaseModel):
     cluster: TripClusterRead
     researcher: ResearcherRead
     best_window: MatchedOpenWindowRead | None = None
+    cost_share: CostShareEstimateRead | None = None
     itinerary_cities: list[str]
     draft_ready: bool
     draft_blockers: list[str]

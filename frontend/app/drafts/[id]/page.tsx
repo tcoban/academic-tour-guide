@@ -15,6 +15,8 @@ export default async function DraftPage({ params }: DraftPageProps) {
   const checklist = draft.metadata_json.checklist ?? [];
   const usedFacts = draft.metadata_json.used_facts ?? [];
   const candidateSlot = draft.metadata_json.candidate_slot;
+  const costShare = draft.metadata_json.cost_share;
+  const sendBrief = draft.metadata_json.send_brief ?? [];
   const statusHistory = draft.metadata_json.status_history ?? [];
 
   return (
@@ -34,6 +36,19 @@ export default async function DraftPage({ params }: DraftPageProps) {
           <textarea readOnly value={draft.body} />
         </div>
       </Panel>
+
+      {sendBrief.length > 0 ? (
+        <Panel title="Admin send brief" copy="Concise operator notes for turning this draft into a KOF-ready invitation.">
+          <div className="card-list">
+            {sendBrief.map((item) => (
+              <div className="list-card" key={item.label}>
+                <h3>{item.label}</h3>
+                <p className="fine-print">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      ) : null}
 
       <section className="dual-grid">
         <Panel title="Approved facts used" copy="Only approved evidence can power the biographic hook.">
@@ -79,6 +94,34 @@ export default async function DraftPage({ params }: DraftPageProps) {
             <h3>{new Date(candidateSlot.starts_at).toLocaleString()}</h3>
             <p className="muted">Until {new Date(candidateSlot.ends_at).toLocaleString()}</p>
             <p className="fine-print">{candidateSlot.source}</p>
+          </div>
+        </Panel>
+      ) : null}
+
+      {costShare ? (
+        <Panel title="Cost-sharing estimate" copy="Screening estimate comparing standalone Zurich travel with a Zurich add-on.">
+          <div className="list-card">
+            <div className="panel-header">
+              <div>
+                <h3>
+                  CHF {costShare.multi_city_incremental_chf} add-on vs CHF {costShare.baseline_round_trip_chf} standalone
+                </h3>
+                <p className="muted">
+                  {costShare.nearest_itinerary_city} is the nearest known stop ({costShare.nearest_distance_km} km,{" "}
+                  {costShare.recommended_mode}).
+                </p>
+              </div>
+              <span className="status-pill">{costShare.recommendation}</span>
+            </div>
+            <div className="timeline-strip">
+              <span className="timeline-chip">Savings CHF {costShare.estimated_savings_chf}</span>
+              <span className="timeline-chip">ROI {costShare.roi_percent}%</span>
+            </div>
+            {costShare.assumption_notes.map((note) => (
+              <p className="fine-print" key={note}>
+                {note}
+              </p>
+            ))}
           </div>
         </Panel>
       ) : null}

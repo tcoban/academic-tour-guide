@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.entities import OpenSeminarWindow, OutreachDraft, Researcher, TripCluster
 from app.services.enrichment import best_fact, best_fact_candidate
+from app.services.logistics import CostSharingCalculator
 from app.services.opportunities import OpportunityWorkbench
 
 
@@ -34,6 +35,7 @@ TEMPLATES = {
 class DraftGenerator:
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.cost_sharing = CostSharingCalculator()
 
     def generate(self, researcher: Researcher, cluster: TripCluster, template_key: str = "concierge") -> OutreachDraft:
         template = TEMPLATES.get(template_key, TEMPLATES["concierge"])
@@ -59,6 +61,7 @@ class DraftGenerator:
             )
 
         matching_window = self._best_window_for_cluster(cluster)
+        cost_share = self.cost_sharing.estimate(cluster, researcher, matching_window)
         hook = self._build_hook(researcher, cluster, phd_fact.value, nationality_fact.value, template_key)
         subject = template["subject"]
         checklist = self._build_checklist(researcher, cluster, matching_window)
@@ -70,6 +73,16 @@ class DraftGenerator:
                 self._fact_metadata(nationality_fact),
             ],
             "candidate_slot": self._slot_metadata(matching_window),
+            "cost_share": cost_share,
+            "send_brief": self._build_send_brief(
+                researcher=researcher,
+                cluster=cluster,
+                phd_institution=phd_fact.value,
+                nationality=nationality_fact.value,
+                matching_window=matching_window,
+                cost_share=cost_share,
+                template_label=template["label"],
+            ),
             "itinerary": cluster.itinerary,
             "checklist": checklist,
             "approved_fact_gate": True,
@@ -85,6 +98,12 @@ class DraftGenerator:
         )
         if matching_window:
             body += f"- Candidate KOF slot: {matching_window.starts_at.isoformat()} to {matching_window.ends_at.isoformat()}\n"
+        if cost_share:
+            body += (
+                f"- Cost-sharing estimate: CHF {cost_share['multi_city_incremental_chf']} Zurich add-on vs "
+                f"CHF {cost_share['baseline_round_trip_chf']} standalone round trip "
+                f"(CHF {cost_share['estimated_savings_chf']} estimated savings, {cost_share['roi_percent']}% ROI)\n"
+            )
         body += (
             "\nPre-send checklist:\n"
             + "\n".join(f"- {item['label']}: {item['status']}" for item in checklist)
@@ -145,6 +164,54 @@ class DraftGenerator:
             "source": window.source,
             "metadata_json": window.metadata_json,
         }
+
+    def _build_send_brief(
+        self,
+        researcher: Researcher,
+        cluster: TripCluster,
+        phd_institution: str,
+        nationality: str,
+        matching_window: OpenSeminarWindow | None,
+        cost_share: dict | None,
+        template_label: str,
+    ) -> list[dict]:
+        brief = [
+            {
+                "label": "Template angle",
+                "detail": template_label,
+            },
+            {
+                "label": "Biographic hook",
+                "detail": f"Lead with {phd_institution} PhD evidence and {nationality} home-visit relevance.",
+            },
+            {
+                "label": "Trip context",
+                "detail": f"Existing European window runs {cluster.start_date.isoformat()} to {cluster.end_date.isoformat()}.",
+            },
+            {
+                "label": "Suggested ask",
+                "detail": "Invite for a KOF seminar stop, but keep wording conditional pending admin schedule confirmation.",
+            },
+        ]
+        if matching_window:
+            brief.append(
+                {
+                    "label": "Candidate slot",
+                    "detail": f"{matching_window.starts_at.isoformat()} to {matching_window.ends_at.isoformat()}",
+                }
+            )
+        if cost_share:
+            brief.append(
+                {
+                    "label": "Logistics angle",
+                    "detail": (
+                        f"Zurich add-on estimate is CHF {cost_share['multi_city_incremental_chf']} vs "
+                        f"CHF {cost_share['baseline_round_trip_chf']} standalone, with CHF "
+                        f"{cost_share['estimated_savings_chf']} estimated savings."
+                    ),
+                }
+            )
+        return brief
 
     def _build_checklist(self, researcher: Researcher, cluster: TripCluster, matching_window: OpenSeminarWindow | None) -> list[dict]:
         return [
