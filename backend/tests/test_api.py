@@ -128,6 +128,67 @@ def test_daily_catch_and_draft_creation(client, db_session: Session) -> None:
     assert bad_status_response.status_code == 400
 
 
+def test_draft_uses_same_best_slot_as_opportunity_workbench(client, db_session: Session) -> None:
+    researcher = Researcher(
+        name="Prof. Felix Slot",
+        normalized_name=normalize_name("Prof. Felix Slot"),
+        home_institution="Yale",
+    )
+    researcher.facts = [
+        ResearcherFact(
+            fact_type="phd_institution",
+            value="University of Mannheim",
+            confidence=0.92,
+            source_url="https://cv.example/felix",
+            evidence_snippet="PhD, University of Mannheim",
+        ),
+        ResearcherFact(
+            fact_type="nationality",
+            value="German",
+            confidence=0.91,
+            source_url="https://cv.example/felix",
+            evidence_snippet="Nationality: German",
+        ),
+    ]
+    cluster = TripCluster(
+        researcher=researcher,
+        start_date=datetime(2026, 5, 10).date(),
+        end_date=datetime(2026, 5, 12).date(),
+        itinerary=[
+            {"city": "Milan", "starts_at": "2026-05-10T16:00:00+02:00", "title": "Bocconi", "url": "x", "source_name": "bocconi"},
+        ],
+        rationale=[],
+        opportunity_score=80,
+    )
+    best_window = OpenSeminarWindow(
+        starts_at=datetime(2026, 5, 8, 16, 15, tzinfo=ZoneInfo("Europe/Zurich")),
+        ends_at=datetime(2026, 5, 8, 17, 30, tzinfo=ZoneInfo("Europe/Zurich")),
+        source="template",
+        metadata_json={"label": "Friday Seminar"},
+    )
+    later_window = OpenSeminarWindow(
+        starts_at=datetime(2026, 5, 20, 16, 15, tzinfo=ZoneInfo("Europe/Zurich")),
+        ends_at=datetime(2026, 5, 20, 17, 30, tzinfo=ZoneInfo("Europe/Zurich")),
+        source="template",
+        metadata_json={"label": "Later Seminar"},
+    )
+    db_session.add_all([researcher, cluster, best_window, later_window])
+    db_session.commit()
+
+    workbench_response = client.get("/api/opportunities/workbench")
+    draft_response = client.post(
+        "/api/outreach-drafts",
+        json={"researcher_id": researcher.id, "trip_cluster_id": cluster.id},
+    )
+
+    assert workbench_response.status_code == 200
+    opportunity = workbench_response.json()["opportunities"][0]
+    assert opportunity["best_window"]["id"] == best_window.id
+    assert opportunity["best_window"]["fit_type"] == "nearby"
+    assert draft_response.status_code == 200
+    assert draft_response.json()["metadata_json"]["candidate_slot"]["id"] == best_window.id
+
+
 def test_enrichment_endpoint_adds_fact(client, db_session: Session) -> None:
     researcher = Researcher(name="Prof. Bruno Test", normalized_name=normalize_name("Prof. Bruno Test"))
     db_session.add(researcher)

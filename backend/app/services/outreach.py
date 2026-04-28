@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
-
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.entities import OpenSeminarWindow, OutreachDraft, Researcher, TripCluster
 from app.services.enrichment import best_fact, best_fact_candidate
+from app.services.opportunities import OpportunityWorkbench
 
 
 class ReviewRequiredError(RuntimeError):
@@ -108,14 +106,8 @@ class DraftGenerator:
         return draft
 
     def _best_window_for_cluster(self, cluster: TripCluster) -> OpenSeminarWindow | None:
-        tzinfo = None
-        if cluster.itinerary:
-            tzinfo = datetime.fromisoformat(cluster.itinerary[0]["starts_at"]).tzinfo
-        cluster_start = datetime.combine(cluster.start_date, datetime.min.time(), tzinfo=tzinfo)
-        windows = self.session.scalars(
-            select(OpenSeminarWindow).where(OpenSeminarWindow.starts_at >= cluster_start).order_by(OpenSeminarWindow.starts_at)
-        ).all()
-        return windows[0] if windows else None
+        match = OpportunityWorkbench(self.session).best_window_for_cluster(cluster)
+        return match.window if match else None
 
     def _build_hook(self, researcher: Researcher, cluster: TripCluster, phd_institution: str, nationality: str, template_key: str) -> str:
         hook_fragments = [f"Biographic hook: {researcher.name} earned their PhD at {phd_institution}."]
