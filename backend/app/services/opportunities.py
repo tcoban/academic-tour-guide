@@ -8,7 +8,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
-from app.models.entities import HostCalendarEvent, OpenSeminarWindow, Researcher, TripCluster
+from app.models.entities import HostCalendarEvent, OpenSeminarWindow, OutreachDraft, Researcher, TripCluster
 from app.services.enrichment import best_fact, best_fact_candidate
 from app.services.scoring import ensure_timezone
 
@@ -48,6 +48,9 @@ class OpportunityWorkbench:
         researcher = cluster.researcher
         match = self.best_window_for_cluster(cluster, windows)
         blockers = self._draft_blockers(researcher)
+        existing_drafts = self.session.scalars(
+            select(OutreachDraft).where(OutreachDraft.trip_cluster_id == cluster.id).order_by(desc(OutreachDraft.created_at))
+        ).all()
         return {
             "cluster": cluster,
             "researcher": researcher,
@@ -55,6 +58,9 @@ class OpportunityWorkbench:
             "itinerary_cities": [item["city"] for item in cluster.itinerary],
             "draft_ready": len(blockers) == 0,
             "draft_blockers": blockers,
+            "draft_count": len(existing_drafts),
+            "latest_draft_id": existing_drafts[0].id if existing_drafts else None,
+            "latest_draft_template": (existing_drafts[0].metadata_json or {}).get("template_label") if existing_drafts else None,
         }
 
     def best_window_for_cluster(self, cluster: TripCluster, windows: list[OpenSeminarWindow] | None = None) -> SlotMatch | None:

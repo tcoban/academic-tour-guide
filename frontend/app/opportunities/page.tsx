@@ -111,6 +111,11 @@ export default async function OpportunitiesPage() {
             <div className="opportunity-section">
               <h3>Why it ranks</h3>
               <div className="timeline-strip">
+                {item.draft_count > 0 ? (
+                  <span className="timeline-chip">
+                    {item.draft_count} draft{item.draft_count === 1 ? "" : "s"}
+                  </span>
+                ) : null}
                 {item.cluster.rationale.map((entry) => (
                   <span className="timeline-chip" key={`${item.cluster.id}-${entry.label}`}>
                     {entry.label} +{entry.points}
@@ -126,6 +131,11 @@ export default async function OpportunitiesPage() {
               <Link className="ghost-button" href={`/researchers/${item.researcher.id}`}>
                 View dossier
               </Link>
+              {item.latest_draft_id ? (
+                <Link className="ghost-button" href={`/drafts/${item.latest_draft_id}`}>
+                  Latest draft
+                </Link>
+              ) : null}
               {item.draft_ready ? (
                 <div className="template-actions">
                   <DraftButton researcherId={item.researcher.id} clusterId={item.cluster.id} label="Concierge" templateKey="concierge" />

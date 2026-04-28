@@ -186,6 +186,9 @@ class OpportunityCardRead(BaseModel):
     itinerary_cities: list[str]
     draft_ready: bool
     draft_blockers: list[str]
+    draft_count: int = 0
+    latest_draft_id: str | None = None
+    latest_draft_template: str | None = None
 
 
 class OpportunityWorkbenchResponse(BaseModel):
@@ -264,6 +267,15 @@ class DraftRead(BaseModel):
     blocked_reason: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
+
+
+class DraftListRead(DraftRead):
+    researcher_name: str
+    researcher_home_institution: str | None = None
+    cluster_start_date: date
+    cluster_end_date: date
+    cluster_score: int
+    template_label: str | None = None
 
 
 class ResearcherDetailRead(ResearcherRead):

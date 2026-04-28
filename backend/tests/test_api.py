@@ -98,6 +98,14 @@ def test_daily_catch_and_draft_creation(client, db_session: Session) -> None:
     assert cost_share_response.json()["metadata_json"]["template_key"] == "cost_share"
     assert "cost-sharing" in cost_share_response.json()["body"]
 
+    list_response = client.get("/api/outreach-drafts")
+    assert list_response.status_code == 200
+    drafts = list_response.json()
+    assert len(drafts) == 2
+    assert drafts[0]["researcher_name"] == "Prof. Elsa Example"
+    assert drafts[0]["cluster_score"] == 95
+    assert drafts[0]["template_label"] in {"Concierge invitation", "Cost-sharing angle"}
+
 
 def test_enrichment_endpoint_adds_fact(client, db_session: Session) -> None:
     researcher = Researcher(name="Prof. Bruno Test", normalized_name=normalize_name("Prof. Bruno Test"))
@@ -247,3 +255,4 @@ def test_opportunity_workbench_returns_best_slot_and_draft_readiness(client, db_
     assert opportunity["best_window"]["fit_type"] == "overlap"
     assert opportunity["best_window"]["within_scoring_window"] is True
     assert opportunity["itinerary_cities"] == ["Milan", "Munich"]
+    assert opportunity["draft_count"] == 0

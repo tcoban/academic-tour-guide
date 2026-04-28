@@ -129,6 +129,9 @@ export type OpportunityCard = {
   itinerary_cities: string[];
   draft_ready: boolean;
   draft_blockers: string[];
+  draft_count: number;
+  latest_draft_id?: string | null;
+  latest_draft_template?: string | null;
 };
 
 export type OpportunityWorkbench = {
@@ -248,6 +251,15 @@ export type OutreachDraft = {
   created_at: string;
 };
 
+export type OutreachDraftListItem = OutreachDraft & {
+  researcher_name: string;
+  researcher_home_institution?: string | null;
+  cluster_start_date: string;
+  cluster_end_date: string;
+  cluster_score: number;
+  template_label?: string | null;
+};
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
 async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -324,6 +336,10 @@ export function getSeminarOverrides(): Promise<SeminarSlotOverride[]> {
 
 export function getDraft(id: string): Promise<OutreachDraft> {
   return getJson<OutreachDraft>(`/outreach-drafts/${id}`);
+}
+
+export function getDrafts(): Promise<OutreachDraftListItem[]> {
+  return getJson<OutreachDraftListItem[]>("/outreach-drafts");
 }
 
 export async function createDraft(researcherId: string, tripClusterId: string, templateKey = "concierge"): Promise<OutreachDraft> {

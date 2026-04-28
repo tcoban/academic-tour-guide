@@ -221,6 +221,22 @@ a {
   gap: 12px;
 }
 
+.draft-library-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+}
+
+.draft-library-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.draft-library-card .ghost-button {
+  align-self: flex-start;
+}
+
 .list-card {
   padding: 16px 18px;
   border-radius: 20px;

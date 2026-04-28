@@ -25,6 +25,7 @@ from app.schemas.api import (
     CalendarOverlayResponse,
     DailyCatchResponse,
     DraftCreate,
+    DraftListRead,
     DraftRead,
     EnrichRequest,
     FactCandidateRead,
@@ -361,6 +362,33 @@ def create_draft(payload: DraftCreate, session: Session = Depends(session_dep)) 
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     session.commit()
     return draft
+
+
+@router.get("/outreach-drafts", response_model=list[DraftListRead])
+def list_drafts(
+    limit: int = Query(default=50, ge=1, le=200),
+    session: Session = Depends(session_dep),
+) -> list[DraftListRead]:
+    drafts = session.scalars(
+        select(OutreachDraft)
+        .options(selectinload(OutreachDraft.researcher), selectinload(OutreachDraft.trip_cluster))
+        .order_by(OutreachDraft.created_at.desc())
+        .limit(limit)
+    ).all()
+    return [
+        DraftListRead.model_validate(
+            {
+                **DraftRead.model_validate(draft).model_dump(),
+                "researcher_name": draft.researcher.name,
+                "researcher_home_institution": draft.researcher.home_institution,
+                "cluster_start_date": draft.trip_cluster.start_date,
+                "cluster_end_date": draft.trip_cluster.end_date,
+                "cluster_score": draft.trip_cluster.opportunity_score,
+                "template_label": (draft.metadata_json or {}).get("template_label"),
+            }
+        )
+        for draft in drafts
+    ]
 
 
 @router.get("/outreach-drafts/{draft_id}", response_model=DraftRead)
