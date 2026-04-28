@@ -195,6 +195,52 @@ def test_review_approval_can_merge_candidate_value(client, db_session: Session) 
     assert approved_facts[0].approval_origin == "review_queue"
 
 
+def test_review_facts_endpoint_filters_review_history(client, db_session: Session) -> None:
+    researcher = Researcher(name="Prof. Filter Target", normalized_name=normalize_name("Prof. Filter Target"))
+    researcher.fact_candidates = [
+        FactCandidate(
+            fact_type="nationality",
+            value="German",
+            confidence=0.91,
+            evidence_snippet="Nationality: German",
+            source_url="https://cv.example/filter",
+            status="pending",
+        ),
+        FactCandidate(
+            fact_type="phd_institution",
+            value="University of Mannheim",
+            confidence=0.74,
+            evidence_snippet="PhD: University of Mannheim",
+            source_url="https://profile.example/filter",
+            status="approved",
+        ),
+        FactCandidate(
+            fact_type="birth_month",
+            value="5",
+            confidence=0.65,
+            evidence_snippet="Born: May 1, 1980",
+            source_url="https://cv.example/filter",
+            status="rejected",
+        ),
+    ]
+    db_session.add(researcher)
+    db_session.commit()
+
+    pending_response = client.get("/api/review/facts?status=pending&fact_type=nationality&min_confidence=0.9&source_contains=cv")
+    all_response = client.get("/api/review/facts?status=all&source_contains=filter")
+    rejected_response = client.get("/api/review/facts?status=rejected")
+    bad_response = client.get("/api/review/facts?status=maybe")
+
+    assert pending_response.status_code == 200
+    assert len(pending_response.json()) == 1
+    assert pending_response.json()[0]["fact_type"] == "nationality"
+    assert all_response.status_code == 200
+    assert len(all_response.json()) == 3
+    assert rejected_response.status_code == 200
+    assert rejected_response.json()[0]["status"] == "rejected"
+    assert bad_response.status_code == 400
+
+
 def test_source_health_endpoint_reports_audit_results(client, monkeypatch) -> None:
     class StubAuditor:
         def audit(self) -> list[SourceAuditResult]:

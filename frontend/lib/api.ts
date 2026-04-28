@@ -29,6 +29,14 @@ export type ReviewFact = FactCandidate & {
   researcher_name: string;
 };
 
+export type ReviewQueueFilters = {
+  status?: string;
+  fact_type?: string;
+  min_confidence?: string;
+  source_contains?: string;
+  researcher_id?: string;
+};
+
 export type ResearcherIdentity = {
   id: string;
   provider: string;
@@ -376,8 +384,22 @@ export async function enrichResearcher(id: string, payload: EnrichResearcherPayl
   });
 }
 
-export function getReviewQueue(): Promise<ReviewFact[]> {
-  return getJson<ReviewFact[]>("/review/facts?status=pending");
+export function getReviewQueue(filters: ReviewQueueFilters = {}): Promise<ReviewFact[]> {
+  const params = new URLSearchParams();
+  params.set("status", filters.status || "pending");
+  if (filters.fact_type) {
+    params.set("fact_type", filters.fact_type);
+  }
+  if (filters.min_confidence) {
+    params.set("min_confidence", filters.min_confidence);
+  }
+  if (filters.source_contains) {
+    params.set("source_contains", filters.source_contains);
+  }
+  if (filters.researcher_id) {
+    params.set("researcher_id", filters.researcher_id);
+  }
+  return getJson<ReviewFact[]>(`/review/facts?${params.toString()}`);
 }
 
 export function getSeminarTemplates(): Promise<SeminarSlotTemplate[]> {

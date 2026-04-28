@@ -334,13 +334,29 @@ def source_health_reliability(
 @router.get("/review/facts", response_model=list[ReviewFactRead])
 def list_review_facts(
     status_filter: str = Query(default="pending", alias="status"),
+    fact_type: str | None = Query(default=None),
+    researcher_id: str | None = Query(default=None),
+    min_confidence: float | None = Query(default=None, ge=0.0, le=1.0),
+    source_contains: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
     session: Session = Depends(session_dep),
 ) -> list[ReviewFactRead]:
+    if status_filter not in {"pending", "approved", "rejected", "all"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported review status filter")
+    query = select(FactCandidate).options(selectinload(FactCandidate.researcher))
+    if status_filter != "all":
+        query = query.where(FactCandidate.status == status_filter)
+    if fact_type:
+        query = query.where(FactCandidate.fact_type == fact_type)
+    if researcher_id:
+        query = query.where(FactCandidate.researcher_id == researcher_id)
+    if min_confidence is not None:
+        query = query.where(FactCandidate.confidence >= min_confidence)
+    if source_contains:
+        query = query.where(FactCandidate.source_url.ilike(f"%{source_contains}%"))
+
     candidates = session.scalars(
-        select(FactCandidate)
-        .options(selectinload(FactCandidate.researcher))
-        .where(FactCandidate.status == status_filter)
-        .order_by(FactCandidate.confidence.desc(), FactCandidate.created_at.desc())
+        query.order_by(FactCandidate.status, FactCandidate.confidence.desc(), FactCandidate.created_at.desc()).limit(limit)
     ).all()
     return [
         ReviewFactRead.model_validate(
