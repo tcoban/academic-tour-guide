@@ -116,6 +116,27 @@ export type OpenSeminarWindow = {
   metadata_json: Record<string, unknown>;
 };
 
+export type MatchedOpenWindow = OpenSeminarWindow & {
+  fit_type: string;
+  distance_days: number;
+  within_scoring_window: boolean;
+};
+
+export type OpportunityCard = {
+  cluster: TripCluster;
+  researcher: Researcher;
+  best_window?: MatchedOpenWindow | null;
+  itinerary_cities: string[];
+  draft_ready: boolean;
+  draft_blockers: string[];
+};
+
+export type OpportunityWorkbench = {
+  opportunities: OpportunityCard[];
+  host_events: HostCalendarEvent[];
+  open_windows: OpenSeminarWindow[];
+};
+
 export type ResearcherDetail = Researcher & {
   talk_events: TalkEvent[];
   trip_clusters: TripCluster[];
@@ -216,6 +237,10 @@ export function getCalendarOverlay(): Promise<CalendarOverlay> {
 
 export function getSourceHealth(): Promise<SourceHealth[]> {
   return getJson<SourceHealth[]>("/source-health");
+}
+
+export function getOpportunityWorkbench(): Promise<OpportunityWorkbench> {
+  return getJson<OpportunityWorkbench>("/opportunities/workbench");
 }
 
 export function getResearchers(): Promise<Researcher[]> {

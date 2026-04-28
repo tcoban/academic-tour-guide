@@ -29,6 +29,7 @@ from app.schemas.api import (
     FactCandidateRead,
     IngestResponse,
     JobRunResponse,
+    OpportunityWorkbenchResponse,
     ResearcherDetailRead,
     ResearcherJobRequest,
     ResearcherRead,
@@ -47,6 +48,7 @@ from app.services.availability import AvailabilityBuilder
 from app.services.enrichment import Biographer, BiographerPipeline
 from app.services.ingestion import IngestionService
 from app.services.outreach import DraftGenerator, ReviewRequiredError
+from app.services.opportunities import OpportunityWorkbench
 from app.services.review import FactReviewService
 from app.services.scoring import Scorer
 from app.services.seed import seed_demo_data
@@ -175,6 +177,14 @@ def calendar_overlay(
     host_events = session.scalars(select(HostCalendarEvent).order_by(HostCalendarEvent.starts_at)).all()
     open_windows = session.scalars(select(OpenSeminarWindow).order_by(OpenSeminarWindow.starts_at)).all()
     return CalendarOverlayResponse(host_events=host_events, open_windows=open_windows)
+
+
+@router.get("/opportunities/workbench", response_model=OpportunityWorkbenchResponse)
+def opportunity_workbench(
+    limit: int = Query(default=25, ge=1, le=100),
+    session: Session = Depends(session_dep),
+) -> dict:
+    return OpportunityWorkbench(session).build(limit=limit)
 
 
 @router.get("/source-health", response_model=list[SourceHealthRead])

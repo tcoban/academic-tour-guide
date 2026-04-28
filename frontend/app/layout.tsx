@@ -34,6 +34,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             </div>
             <nav className="nav-links">
               <Link href="/">Daily Catch</Link>
+              <Link href="/opportunities">Opportunities</Link>
               <Link href="/source-health">Source Health</Link>
               <Link href="/review">Review Queue</Link>
               <Link href="/seminar-admin">Seminar Admin</Link>

@@ -18,6 +18,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Evidence-backed enrichment with pending fact candidates, approved facts, source documents, and review history.
 - Availability engine that derives open seminar windows from recurring templates minus KOF occupied events and manual overrides.
 - Opportunity scoring tuned to Zurich-specific alumni and DACH travel patterns, with explicit flags when a score uses unreviewed evidence.
+- Opportunity workbench API that matches ranked trip clusters to the best open KOF slot and exposes draft-readiness blockers.
 - Outreach draft generation gated on approved biographic evidence.
 
 ## Frontend Highlights
@@ -26,6 +27,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Researcher detail view with approved facts, pending evidence, source documents, identities, and itinerary context.
 - Review inbox for approving or rejecting extracted fact candidates before outreach.
 - Seminar template and override administration.
+- Opportunity workbench for ranking trip clusters, inspecting best KOF slot fit, and seeing whether outreach is draft-ready.
 - Source health page for checking live scraper output and zero-event sources.
 - Outreach draft preview for KOF admins.
 
@@ -85,6 +87,7 @@ Useful API endpoints:
 - `POST /api/review/facts/{id}/approve`
 - `POST /api/review/facts/{id}/reject`
 - `GET /api/researchers/{id}/documents`
+- `GET /api/opportunities/workbench`
 - `GET /api/source-health`
 
 PDF extraction is enabled through `pypdf`; unsupported or failed documents are recorded as source documents without crashing the refresh pipeline.

@@ -173,6 +173,27 @@ class CalendarOverlayResponse(BaseModel):
     open_windows: list[OpenSeminarWindowRead]
 
 
+class MatchedOpenWindowRead(OpenSeminarWindowRead):
+    fit_type: str
+    distance_days: int
+    within_scoring_window: bool
+
+
+class OpportunityCardRead(BaseModel):
+    cluster: TripClusterRead
+    researcher: ResearcherRead
+    best_window: MatchedOpenWindowRead | None = None
+    itinerary_cities: list[str]
+    draft_ready: bool
+    draft_blockers: list[str]
+
+
+class OpportunityWorkbenchResponse(BaseModel):
+    opportunities: list[OpportunityCardRead]
+    host_events: list[HostCalendarEventRead]
+    open_windows: list[OpenSeminarWindowRead]
+
+
 class SourceHealthRead(BaseModel):
     source_name: str
     source_type: str

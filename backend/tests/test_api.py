@@ -128,3 +128,19 @@ def test_source_health_endpoint_reports_audit_results(client, monkeypatch) -> No
     assert payload[0]["source_name"] == "kof_host_calendar"
     assert payload[0]["event_count"] == 7
     assert payload[0]["source_type"] == "host_calendar"
+
+
+def test_opportunity_workbench_returns_best_slot_and_draft_readiness(client, db_session: Session) -> None:
+    seed_researcher_graph(db_session)
+
+    response = client.get("/api/opportunities/workbench")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["opportunities"]) == 1
+    opportunity = payload["opportunities"][0]
+    assert opportunity["researcher"]["name"] == "Prof. Elsa Example"
+    assert opportunity["draft_ready"] is True
+    assert opportunity["draft_blockers"] == []
+    assert opportunity["best_window"]["fit_type"] == "overlap"
+    assert opportunity["best_window"]["within_scoring_window"] is True
+    assert opportunity["itinerary_cities"] == ["Milan", "Munich"]
