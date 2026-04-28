@@ -159,6 +159,12 @@ export type IngestResponse = {
   updated_count: number;
 };
 
+export type JobRunResponse = {
+  processed_count: number;
+  created_count: number;
+  updated_count: number;
+};
+
 export type CalendarOverlay = {
   host_events: HostCalendarEvent[];
   open_windows: OpenSeminarWindow[];
@@ -419,6 +425,20 @@ export async function runKofCalendarSync(): Promise<IngestResponse> {
 export async function runSourceAudit(): Promise<SourceHealthRecord[]> {
   return getJson<SourceHealthRecord[]>("/jobs/audit-sources", {
     method: "POST",
+  });
+}
+
+export async function runRepecSync(researcherId?: string): Promise<JobRunResponse> {
+  return getJson<JobRunResponse>("/jobs/repec-sync", {
+    method: "POST",
+    body: JSON.stringify({ researcher_id: researcherId ?? null }),
+  });
+}
+
+export async function runBiographerRefresh(researcherId?: string): Promise<JobRunResponse> {
+  return getJson<JobRunResponse>("/jobs/biographer-refresh", {
+    method: "POST",
+    body: JSON.stringify({ researcher_id: researcherId ?? null }),
   });
 }
 
