@@ -274,6 +274,16 @@ a {
   margin-top: auto;
 }
 
+.template-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.template-actions .stack {
+  gap: 6px;
+}
+
 .draft-blocker {
   flex-direction: column;
   align-items: flex-start;

@@ -86,6 +86,17 @@ def test_daily_catch_and_draft_creation(client, db_session: Session) -> None:
     draft_payload = draft_response.json()
     assert draft_payload["status"] == "draft"
     assert "Biographic hook" in draft_payload["body"]
+    assert draft_payload["metadata_json"]["template_key"] == "concierge"
+    assert {fact["fact_type"] for fact in draft_payload["metadata_json"]["used_facts"]} == {"phd_institution", "nationality"}
+    assert any(item["label"] == "Open KOF slot selected" for item in draft_payload["metadata_json"]["checklist"])
+
+    cost_share_response = client.post(
+        "/api/outreach-drafts",
+        json={"researcher_id": researcher_id, "trip_cluster_id": cluster_id, "template_key": "cost_share"},
+    )
+    assert cost_share_response.status_code == 200
+    assert cost_share_response.json()["metadata_json"]["template_key"] == "cost_share"
+    assert "cost-sharing" in cost_share_response.json()["body"]
 
 
 def test_enrichment_endpoint_adds_fact(client, db_session: Session) -> None:

@@ -127,7 +127,23 @@ export default async function OpportunitiesPage() {
                 View dossier
               </Link>
               {item.draft_ready ? (
-                <DraftButton researcherId={item.researcher.id} clusterId={item.cluster.id} />
+                <div className="template-actions">
+                  <DraftButton researcherId={item.researcher.id} clusterId={item.cluster.id} label="Concierge" templateKey="concierge" />
+                  <DraftButton
+                    className="ghost-button"
+                    researcherId={item.researcher.id}
+                    clusterId={item.cluster.id}
+                    label="Academic hook"
+                    templateKey="academic_home"
+                  />
+                  <DraftButton
+                    className="ghost-button"
+                    researcherId={item.researcher.id}
+                    clusterId={item.cluster.id}
+                    label="Cost-share"
+                    templateKey="cost_share"
+                  />
+                </div>
               ) : (
                 <div className="draft-blocker">
                   <strong>Draft blocked</strong>

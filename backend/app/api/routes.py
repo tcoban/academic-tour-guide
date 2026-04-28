@@ -356,7 +356,7 @@ def create_draft(payload: DraftCreate, session: Session = Depends(session_dep)) 
     if not researcher or not cluster:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher or cluster not found")
     try:
-        draft = DraftGenerator(session).generate(researcher, cluster)
+        draft = DraftGenerator(session).generate(researcher, cluster, template_key=payload.template_key)
     except ReviewRequiredError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     session.commit()

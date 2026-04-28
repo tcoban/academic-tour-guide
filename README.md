@@ -30,7 +30,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Seminar template and override administration.
 - Opportunity workbench for ranking trip clusters, inspecting best KOF slot fit, and seeing whether outreach is draft-ready.
 - Source health page for checking live scraper output, recording audit history, spotting zero-event sources, and surfacing reliability trends.
-- Outreach draft preview for KOF admins.
+- Outreach draft preview for KOF admins with template selection, approved-fact provenance, pre-send checklist, copy, and text export.
 
 ## Local Development
 

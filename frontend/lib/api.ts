@@ -218,6 +218,33 @@ export type OutreachDraft = {
   body: string;
   status: string;
   blocked_reason?: string | null;
+  metadata_json: {
+    template_key?: string;
+    template_label?: string;
+    used_facts?: Array<{
+      id: string;
+      fact_type: string;
+      value: string;
+      confidence: number;
+      source_url?: string | null;
+      evidence_snippet?: string | null;
+      approval_origin?: string;
+      approved_at?: string | null;
+    }>;
+    candidate_slot?: {
+      id: string;
+      starts_at: string;
+      ends_at: string;
+      source: string;
+      metadata_json: Record<string, unknown>;
+    } | null;
+    itinerary?: TripCluster["itinerary"];
+    checklist?: Array<{
+      label: string;
+      status: string;
+      detail: string;
+    }>;
+  };
   created_at: string;
 };
 
@@ -299,10 +326,10 @@ export function getDraft(id: string): Promise<OutreachDraft> {
   return getJson<OutreachDraft>(`/outreach-drafts/${id}`);
 }
 
-export async function createDraft(researcherId: string, tripClusterId: string): Promise<OutreachDraft> {
+export async function createDraft(researcherId: string, tripClusterId: string, templateKey = "concierge"): Promise<OutreachDraft> {
   return getJson<OutreachDraft>("/outreach-drafts", {
     method: "POST",
-    body: JSON.stringify({ researcher_id: researcherId, trip_cluster_id: tripClusterId }),
+    body: JSON.stringify({ researcher_id: researcherId, trip_cluster_id: tripClusterId, template_key: templateKey }),
   });
 }
 

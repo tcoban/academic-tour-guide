@@ -249,6 +249,7 @@ class ReviewDecisionRequest(BaseModel):
 class DraftCreate(BaseModel):
     researcher_id: str
     trip_cluster_id: str
+    template_key: str = "concierge"
 
 
 class DraftRead(BaseModel):
@@ -261,6 +262,7 @@ class DraftRead(BaseModel):
     body: str
     status: str
     blocked_reason: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
 
 

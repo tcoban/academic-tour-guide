@@ -283,6 +283,7 @@ class OutreachDraft(Base):
     body: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(32), default="draft")
     blocked_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     researcher: Mapped["Researcher"] = relationship(back_populates="outreach_drafts")
