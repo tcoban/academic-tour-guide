@@ -4,7 +4,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import session_dep
@@ -32,12 +32,14 @@ from app.schemas.api import (
     FactCandidateRead,
     IngestResponse,
     JobRunResponse,
+    OperatorRunbookResponse,
     OpportunityWorkbenchResponse,
     ResearcherDetailRead,
     ResearcherJobRequest,
     ResearcherRead,
     ReviewDecisionRequest,
     ReviewFactRead,
+    RunbookStepRead,
     SeminarSlotOverrideCreate,
     SeminarSlotOverrideRead,
     SeminarSlotTemplateCreate,
@@ -62,6 +64,18 @@ router = APIRouter()
 ALLOWED_DRAFT_STATUSES = {"draft", "reviewed", "sent_manually", "archived"}
 
 
+def _count(session: Session, statement) -> int:
+    return int(session.scalar(statement) or 0)
+
+
+def _draft_counts_by_status(session: Session) -> dict[str, int]:
+    rows = session.execute(select(OutreachDraft.status, func.count()).group_by(OutreachDraft.status)).all()
+    counts = {status_name: 0 for status_name in sorted(ALLOWED_DRAFT_STATUSES)}
+    for status_name, count in rows:
+        counts[status_name] = int(count)
+    return counts
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -75,6 +89,93 @@ def daily_catch(session: Session = Depends(session_dep)) -> DailyCatchResponse:
     ).all()
     clusters = session.scalars(select(TripCluster).order_by(TripCluster.opportunity_score.desc()).limit(10)).all()
     return DailyCatchResponse(recent_events=recent, top_clusters=clusters)
+
+
+@router.get("/operator/runbook", response_model=OperatorRunbookResponse)
+def operator_runbook(session: Session = Depends(session_dep)) -> OperatorRunbookResponse:
+    reliability = SourceReliabilityService().summarize(session)
+    source_attention_count = sum(1 for source in reliability if source.needs_attention)
+    pending_fact_count = _count(session, select(func.count()).select_from(FactCandidate).where(FactCandidate.status == "pending"))
+    open_window_count = _count(session, select(func.count()).select_from(OpenSeminarWindow))
+    host_event_count = _count(session, select(func.count()).select_from(HostCalendarEvent))
+    draft_counts_by_status = _draft_counts_by_status(session)
+    workbench = OpportunityWorkbench(session).build(limit=100)
+    draft_ready_opportunity_count = sum(1 for opportunity in workbench["opportunities"] if opportunity["draft_ready"])
+
+    source_status = "needs_attention" if source_attention_count or not reliability else "ready"
+    source_detail = (
+        f"{source_attention_count} source reliability signal needs attention."
+        if source_attention_count
+        else "No recorded source audit history yet."
+        if not reliability
+        else "Source reliability looks stable from recorded audits."
+    )
+    pending_draft_count = draft_counts_by_status.get("draft", 0)
+    reviewed_draft_count = draft_counts_by_status.get("reviewed", 0)
+    draft_followup_count = pending_draft_count + reviewed_draft_count
+
+    return OperatorRunbookResponse(
+        source_attention_count=source_attention_count,
+        pending_fact_count=pending_fact_count,
+        draft_ready_opportunity_count=draft_ready_opportunity_count,
+        open_window_count=open_window_count,
+        host_event_count=host_event_count,
+        draft_counts_by_status=draft_counts_by_status,
+        recommended_steps=[
+            RunbookStepRead(
+                key="source-audit",
+                title="Refresh source signal",
+                status=source_status,
+                detail=source_detail,
+                href="/source-health",
+                cta_label="Open Source Health",
+                count=source_attention_count,
+            ),
+            RunbookStepRead(
+                key="fact-review",
+                title="Clear evidence review",
+                status="needs_attention" if pending_fact_count else "ready",
+                detail=(
+                    f"{pending_fact_count} extracted fact candidate needs admin review."
+                    if pending_fact_count == 1
+                    else f"{pending_fact_count} extracted fact candidates need admin review."
+                    if pending_fact_count
+                    else "No pending biographic facts are blocking the queue."
+                ),
+                href="/review",
+                cta_label="Review Facts",
+                count=pending_fact_count,
+            ),
+            RunbookStepRead(
+                key="opportunities",
+                title="Pick draft-ready opportunities",
+                status="ready" if draft_ready_opportunity_count else "blocked",
+                detail=(
+                    f"{draft_ready_opportunity_count} opportunity dossier is ready for draft generation."
+                    if draft_ready_opportunity_count == 1
+                    else f"{draft_ready_opportunity_count} opportunity dossiers are ready for draft generation."
+                    if draft_ready_opportunity_count
+                    else "No opportunity has all required approved facts and slot context yet."
+                ),
+                href="/opportunities",
+                cta_label="Open Workbench",
+                count=draft_ready_opportunity_count,
+            ),
+            RunbookStepRead(
+                key="draft-library",
+                title="Move drafts through the desk",
+                status="needs_attention" if draft_followup_count else "ready",
+                detail=(
+                    f"{pending_draft_count} draft and {reviewed_draft_count} reviewed draft need lifecycle follow-up."
+                    if draft_followup_count
+                    else "No generated drafts are waiting for review or manual send status."
+                ),
+                href="/drafts",
+                cta_label="Open Drafts",
+                count=draft_followup_count,
+            ),
+        ],
+    )
 
 
 @router.post("/jobs/ingest", response_model=IngestResponse)

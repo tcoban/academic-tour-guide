@@ -26,6 +26,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 
 - Daily Catch dashboard with clusters, calendar windows, and host-calendar context.
 - Researcher detail view with approved facts, pending evidence, source documents, identities, and itinerary context.
+- Daily Operator Runbook that summarizes source attention, pending evidence, open KOF windows, draft-ready opportunities, and draft lifecycle follow-up.
 - Review inbox for approving or rejecting extracted fact candidates before outreach.
 - Seminar template and override administration.
 - Opportunity workbench for ranking trip clusters, inspecting best KOF slot fit, and seeing whether outreach is draft-ready.
@@ -92,6 +93,7 @@ Useful API endpoints:
 - `POST /api/review/facts/{id}/reject`
 - `GET /api/researchers/{id}/documents`
 - `GET /api/opportunities/workbench`
+- `GET /api/operator/runbook`
 - `GET /api/outreach-drafts`
 - `PATCH /api/outreach-drafts/{id}/status`
 - `GET /api/source-health`

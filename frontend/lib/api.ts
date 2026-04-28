@@ -195,6 +195,26 @@ export type SourceReliability = {
   latest_checked_at: string;
 };
 
+export type RunbookStep = {
+  key: string;
+  title: string;
+  status: string;
+  detail: string;
+  href: string;
+  cta_label: string;
+  count: number;
+};
+
+export type OperatorRunbook = {
+  source_attention_count: number;
+  pending_fact_count: number;
+  draft_ready_opportunity_count: number;
+  open_window_count: number;
+  host_event_count: number;
+  draft_counts_by_status: Record<string, number>;
+  recommended_steps: RunbookStep[];
+};
+
 export type SeminarSlotTemplate = {
   id: string;
   label: string;
@@ -310,6 +330,10 @@ export function getSourceHealthHistory(): Promise<SourceHealthRecord[]> {
 
 export function getSourceReliability(): Promise<SourceReliability[]> {
   return getJson<SourceReliability[]>("/source-health/reliability");
+}
+
+export function getOperatorRunbook(): Promise<OperatorRunbook> {
+  return getJson<OperatorRunbook>("/operator/runbook");
 }
 
 export function getOpportunityWorkbench(): Promise<OpportunityWorkbench> {

@@ -230,6 +230,26 @@ class SourceReliabilityRead(BaseModel):
     latest_checked_at: datetime
 
 
+class RunbookStepRead(BaseModel):
+    key: str
+    title: str
+    status: str
+    detail: str
+    href: str
+    cta_label: str
+    count: int
+
+
+class OperatorRunbookResponse(BaseModel):
+    source_attention_count: int
+    pending_fact_count: int
+    draft_ready_opportunity_count: int
+    open_window_count: int
+    host_event_count: int
+    draft_counts_by_status: dict[str, int]
+    recommended_steps: list[RunbookStepRead]
+
+
 class EnrichRequest(BaseModel):
     cv_text: str | None = None
     source_url: str | None = None

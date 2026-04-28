@@ -381,6 +381,29 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
 }
 
+.runbook-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.runbook-step {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.runbook-step-number {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(175, 77, 45, 0.12);
+  color: var(--accent);
+  font-weight: 900;
+}
+
 .facts-grid {
   display: grid;
   gap: 12px;

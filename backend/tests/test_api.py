@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
-from app.models.entities import OpenSeminarWindow, Researcher, ResearcherFact, SourceHealthCheck, TalkEvent, TripCluster
+from app.models.entities import FactCandidate, OpenSeminarWindow, Researcher, ResearcherFact, SourceHealthCheck, TalkEvent, TripCluster
 from app.services.audit import SourceAuditResult
 from app.services.enrichment import normalize_name
 
@@ -277,3 +277,51 @@ def test_opportunity_workbench_returns_best_slot_and_draft_readiness(client, db_
     assert opportunity["best_window"]["within_scoring_window"] is True
     assert opportunity["itinerary_cities"] == ["Milan", "Munich"]
     assert opportunity["draft_count"] == 0
+
+
+def test_operator_runbook_summarizes_daily_admin_work(client, db_session: Session) -> None:
+    researcher_id, cluster_id = seed_researcher_graph(db_session)
+    db_session.add_all(
+        [
+            FactCandidate(
+                researcher_id=researcher_id,
+                fact_type="nationality",
+                value="German",
+                confidence=0.86,
+                evidence_snippet="Nationality: German",
+                source_url="https://cv.example/elsa",
+            ),
+            SourceHealthCheck(
+                source_name="ecb",
+                source_type="external_opportunity",
+                status="ok",
+                page_count=1,
+                event_count=0,
+                samples=[],
+                checked_at=datetime.now(UTC),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    draft_response = client.post(
+        "/api/outreach-drafts",
+        json={"researcher_id": researcher_id, "trip_cluster_id": cluster_id},
+    )
+    assert draft_response.status_code == 200
+
+    response = client.get("/api/operator/runbook")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["source_attention_count"] == 1
+    assert payload["pending_fact_count"] == 1
+    assert payload["draft_ready_opportunity_count"] == 1
+    assert payload["open_window_count"] == 1
+    assert payload["draft_counts_by_status"]["draft"] == 1
+    assert [step["key"] for step in payload["recommended_steps"]] == [
+        "source-audit",
+        "fact-review",
+        "opportunities",
+        "draft-library",
+    ]
+    assert payload["recommended_steps"][0]["status"] == "needs_attention"
