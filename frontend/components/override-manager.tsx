@@ -1,15 +1,18 @@
 "use client";
 
 import type { FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { createOverride, SeminarSlotOverride } from "@/lib/api";
+import { createOverride, deleteOverride, SeminarSlotOverride, updateOverride } from "@/lib/api";
 
 type OverrideManagerProps = {
   overrides: SeminarSlotOverride[];
 };
 
 export function OverrideManager({ overrides }: OverrideManagerProps) {
+  const router = useRouter();
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
   const [status, setStatus] = useState("blocked");
@@ -17,19 +20,60 @@ export function OverrideManager({ overrides }: OverrideManagerProps) {
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
+  function startEditing(override: SeminarSlotOverride) {
+    setEditingId(override.id);
+    setStartAt(override.start_at);
+    setEndAt(override.end_at);
+    setStatus(override.status);
+    setReason(override.reason || "Manual scheduling override");
+    setMessage(null);
+  }
+
+  function resetForm() {
+    setEditingId(null);
+    setStartAt("");
+    setEndAt("");
+    setStatus("blocked");
+    setReason("Manual scheduling override");
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPending(true);
     try {
-      await createOverride({
+      const payload = {
         start_at: startAt,
         end_at: endAt,
         status,
         reason,
-      });
-      setMessage("Override created. Refresh the page to rebuild the calendar overlay.");
+      };
+      if (editingId) {
+        await updateOverride(editingId, payload);
+        setMessage("Override updated and availability rebuilt.");
+      } else {
+        await createOverride(payload);
+        setMessage("Override created and availability rebuilt.");
+      }
+      resetForm();
+      router.refresh();
     } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : "Override creation failed.");
+      setMessage(cause instanceof Error ? cause.message : "Override save failed.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function handleDelete(overrideId: string) {
+    setPending(true);
+    try {
+      await deleteOverride(overrideId);
+      setMessage("Override deleted and availability rebuilt.");
+      if (editingId === overrideId) {
+        resetForm();
+      }
+      router.refresh();
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Override deletion failed.");
     } finally {
       setPending(false);
     }
@@ -41,14 +85,24 @@ export function OverrideManager({ overrides }: OverrideManagerProps) {
         {overrides.map((override) => (
           <div className="list-card" key={override.id}>
             <div className="panel-header">
-              <h3>{override.reason || "Manual override"}</h3>
-              <span className={`status-pill ${override.status.toLowerCase() === "blocked" ? "blocked" : ""}`}>
-                {override.status}
-              </span>
+              <div>
+                <h3>{override.reason || "Manual override"}</h3>
+                <p className="muted">
+                  {new Date(override.start_at).toLocaleString()} - {new Date(override.end_at).toLocaleString()}
+                </p>
+              </div>
+              <div className="template-actions">
+                <span className={`status-pill ${override.status.toLowerCase() === "blocked" ? "blocked" : ""}`}>
+                  {override.status}
+                </span>
+                <button className="ghost-button" disabled={pending} onClick={() => startEditing(override)} type="button">
+                  Edit
+                </button>
+                <button className="ghost-button" disabled={pending} onClick={() => handleDelete(override.id)} type="button">
+                  Delete
+                </button>
+              </div>
             </div>
-            <p className="muted">
-              {new Date(override.start_at).toLocaleString()} - {new Date(override.end_at).toLocaleString()}
-            </p>
           </div>
         ))}
       </div>
@@ -74,9 +128,16 @@ export function OverrideManager({ overrides }: OverrideManagerProps) {
           Reason
           <input value={reason} onChange={(event) => setReason(event.target.value)} />
         </label>
-        <button type="submit" disabled={pending}>
-          {pending ? "Saving..." : "Create override"}
-        </button>
+        <div className="template-actions">
+          <button type="submit" disabled={pending}>
+            {pending ? "Saving..." : editingId ? "Update override" : "Create override"}
+          </button>
+          {editingId ? (
+            <button className="ghost-button" onClick={resetForm} type="button">
+              Cancel edit
+            </button>
+          ) : null}
+        </div>
         {message ? <span className="fine-print">{message}</span> : null}
       </form>
     </div>

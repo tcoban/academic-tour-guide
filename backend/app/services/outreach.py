@@ -87,29 +87,14 @@ class DraftGenerator:
             "checklist": checklist,
             "approved_fact_gate": True,
         }
-        body = (
-            f"Dear KOF admin,\n\n"
-            f"{researcher.name} appears to be in Europe between {cluster.start_date.isoformat()} and {cluster.end_date.isoformat()}.\n"
-            f"{hook}\n\n"
-            f"Suggested angle:\n"
-            f"- Home institution: {researcher.home_institution or 'Unknown'}\n"
-            f"- Opportunity score: {cluster.opportunity_score}\n"
-            f"- Existing itinerary: {', '.join(item['city'] for item in cluster.itinerary)}\n"
-        )
-        if matching_window:
-            body += f"- Candidate KOF slot: {matching_window.starts_at.isoformat()} to {matching_window.ends_at.isoformat()}\n"
-        if cost_share:
-            body += (
-                f"- Cost-sharing estimate: CHF {cost_share['multi_city_incremental_chf']} Zurich add-on vs "
-                f"CHF {cost_share['baseline_round_trip_chf']} standalone round trip "
-                f"(CHF {cost_share['estimated_savings_chf']} estimated savings, {cost_share['roi_percent']}% ROI)\n"
-            )
-        body += (
-            "\nPre-send checklist:\n"
-            + "\n".join(f"- {item['label']}: {item['status']}" for item in checklist)
-            + "\n"
-            "\nDraft email opening:\n"
-            f"Professor {researcher.name.split()[-1]}, {template['opening']}.\n"
+        body = self._build_body(
+            researcher=researcher,
+            cluster=cluster,
+            hook=hook,
+            opening=template["opening"],
+            matching_window=matching_window,
+            cost_share=cost_share,
+            checklist=checklist,
         )
 
         draft = OutreachDraft(
@@ -141,6 +126,63 @@ class DraftGenerator:
         if template_key == "academic_home":
             hook_fragments.append("The message should lead with the academic-home connection before logistics.")
         return " ".join(hook_fragments)
+
+    def _build_body(
+        self,
+        researcher: Researcher,
+        cluster: TripCluster,
+        hook: str,
+        opening: str,
+        matching_window: OpenSeminarWindow | None,
+        cost_share: dict | None,
+        checklist: list[dict],
+    ) -> str:
+        itinerary_cities = ", ".join(item["city"] for item in cluster.itinerary) or "Europe"
+        last_name = researcher.name.split()[-1]
+        slot_sentence = (
+            f"We currently see a possible KOF slot on {matching_window.starts_at.strftime('%A, %d %B %Y at %H:%M')} Zurich time."
+            if matching_window
+            else "We can keep the date flexible around your European window."
+        )
+        cost_sentence = ""
+        if cost_share:
+            cost_sentence = (
+                f" Because Zurich appears to be a {cost_share['recommended_mode']} add-on from {cost_share['nearest_itinerary_city']}, "
+                f"the incremental travel estimate is CHF {cost_share['multi_city_incremental_chf']} rather than roughly "
+                f"CHF {cost_share['baseline_round_trip_chf']} for a standalone trip."
+            )
+
+        return (
+            "Dear KOF admin,\n\n"
+            f"{researcher.name} appears to be in Europe between {cluster.start_date.isoformat()} and {cluster.end_date.isoformat()}.\n"
+            f"{hook}\n\n"
+            "Admin notes:\n"
+            f"- Home institution: {researcher.home_institution or 'Unknown'}\n"
+            f"- Opportunity score: {cluster.opportunity_score}\n"
+            f"- Existing itinerary: {itinerary_cities}\n"
+            + (
+                f"- Candidate KOF slot: {matching_window.starts_at.isoformat()} to {matching_window.ends_at.isoformat()}\n"
+                if matching_window
+                else ""
+            )
+            + (
+                f"- Cost-sharing estimate: CHF {cost_share['multi_city_incremental_chf']} Zurich add-on vs "
+                f"CHF {cost_share['baseline_round_trip_chf']} standalone round trip "
+                f"(CHF {cost_share['estimated_savings_chf']} estimated savings, {cost_share['roi_percent']}% ROI)\n"
+                if cost_share
+                else ""
+            )
+            + "\nPre-send checklist:\n"
+            + "\n".join(f"- {item['label']}: {item['status']}" for item in checklist)
+            + "\n\nSuggested email draft:\n"
+            f"Dear Professor {last_name},\n\n"
+            f"I hope this finds you well. We noticed that {opening}. "
+            f"Given your connection to {itinerary_cities}, we wondered whether a KOF seminar visit in Zurich could fit naturally into the same trip. "
+            f"{slot_sentence}{cost_sentence}\n\n"
+            "If this is of interest, we would be delighted to explore a suitable seminar date and coordinate the logistics with your existing itinerary.\n\n"
+            "Warm regards,\n"
+            "KOF seminar team\n"
+        )
 
     def _fact_metadata(self, fact) -> dict:
         return {

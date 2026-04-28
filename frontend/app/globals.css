@@ -553,6 +553,18 @@ textarea {
   resize: vertical;
 }
 
+.inline-check {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 10px;
+  color: var(--ink);
+}
+
+.inline-check input {
+  width: auto;
+}
+
 .stack {
   display: flex;
   flex-direction: column;

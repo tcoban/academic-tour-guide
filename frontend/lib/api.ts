@@ -331,12 +331,14 @@ export type EnrichResearcherPayload = {
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+const API_ACCESS_TOKEN = process.env.NEXT_PUBLIC_API_ACCESS_TOKEN;
 
 async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(API_ACCESS_TOKEN ? { "x-atg-api-key": API_ACCESS_TOKEN } : {}),
       ...(init?.headers ?? {}),
     },
     cache: "no-store",
@@ -352,6 +354,9 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
       // Fall back to the generic status text when the response body is not JSON.
     }
     throw new Error(detail);
+  }
+  if (response.status === 204) {
+    return undefined as T;
   }
   return (await response.json()) as T;
 }
@@ -444,10 +449,19 @@ export async function createDraft(researcherId: string, tripClusterId: string, t
   });
 }
 
-export async function updateDraftStatus(draftId: string, status: string, note?: string): Promise<OutreachDraft> {
+export async function updateDraftStatus(
+  draftId: string,
+  status: string,
+  options: { note?: string; checklist_confirmations?: string[]; send_confirmed?: boolean } = {},
+): Promise<OutreachDraft> {
   return getJson<OutreachDraft>(`/outreach-drafts/${draftId}/status`, {
     method: "PATCH",
-    body: JSON.stringify({ status, note: note ?? null }),
+    body: JSON.stringify({
+      status,
+      note: options.note ?? null,
+      checklist_confirmations: options.checklist_confirmations ?? [],
+      send_confirmed: options.send_confirmed ?? false,
+    }),
   });
 }
 
@@ -511,6 +525,29 @@ export async function createTemplate(payload: {
   });
 }
 
+export async function updateTemplate(
+  templateId: string,
+  payload: {
+    label: string;
+    weekday: number;
+    start_time: string;
+    end_time: string;
+    timezone: string;
+    active: boolean;
+  },
+): Promise<SeminarSlotTemplate> {
+  return getJson<SeminarSlotTemplate>(`/seminar/templates/${templateId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteTemplate(templateId: string): Promise<void> {
+  await getJson<void>(`/seminar/templates/${templateId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function createOverride(payload: {
   start_at: string;
   end_at: string;
@@ -520,5 +557,26 @@ export async function createOverride(payload: {
   return getJson<SeminarSlotOverride>("/seminar/overrides", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export async function updateOverride(
+  overrideId: string,
+  payload: {
+    start_at: string;
+    end_at: string;
+    status: string;
+    reason?: string;
+  },
+): Promise<SeminarSlotOverride> {
+  return getJson<SeminarSlotOverride>(`/seminar/overrides/${overrideId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteOverride(overrideId: string): Promise<void> {
+  await getJson<void>(`/seminar/overrides/${overrideId}`, {
+    method: "DELETE",
   });
 }

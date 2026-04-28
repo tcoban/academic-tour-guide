@@ -31,7 +31,7 @@ export default async function DraftPage({ params }: DraftPageProps) {
             <span className={`status-pill ${draft.status === "blocked" ? "blocked" : ""}`}>{draft.status}</span>
             <DraftClipboardActions subject={draft.subject} body={draft.body} />
           </div>
-          <DraftStatusActions currentStatus={draft.status} draftId={draft.id} />
+          <DraftStatusActions checklist={checklist} currentStatus={draft.status} draftId={draft.id} />
           {draft.blocked_reason ? <p className="fine-print">{draft.blocked_reason}</p> : null}
           <textarea readOnly value={draft.body} />
         </div>

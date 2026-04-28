@@ -21,7 +21,7 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Cost-sharing calculator that compares a standalone Zurich round trip with a Zurich add-on from the existing European itinerary.
 - Opportunity scoring tuned to Zurich-specific alumni and DACH travel patterns, with explicit flags when a score uses unreviewed evidence.
 - Opportunity workbench API that matches ranked trip clusters to the best open KOF slot and exposes draft-readiness blockers.
-- Outreach draft generation gated on approved biographic evidence.
+- Outreach draft generation gated on approved biographic evidence, checklist review, and optional API token protection.
 
 ## Frontend Highlights
 
@@ -32,12 +32,13 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 - Manual approved-fact entry on researcher dossiers for admins to unblock draft eligibility with auditable source notes.
 - Researcher-scoped refresh controls for RePEc identity sync and biographer document/fact extraction.
 - Review inbox for filtering, editing, approving, rejecting, and auditing extracted fact candidates before outreach.
-- Seminar template and override administration.
+- Seminar template and override administration with create, edit, and delete controls.
 - Opportunity workbench for ranking trip clusters, inspecting best KOF slot fit, and seeing whether outreach is draft-ready.
 - Cost-sharing estimates on opportunity cards and draft previews.
 - Draft library for browsing generated outreach variants, filtering by lifecycle status, and reopening provenance-backed draft previews.
 - Source health page for checking live scraper output, recording audit history, spotting zero-event sources, and surfacing reliability trends.
-- Outreach draft preview for KOF admins with template selection, approved-fact provenance, send brief, pre-send checklist, lifecycle status actions, copy, and text export.
+- Outreach draft preview for KOF admins with template selection, approved-fact provenance, send brief, checklist-gated lifecycle status actions, copy, and text export.
+- Optional Basic Auth protection for the frontend and API token protection for the backend.
 
 ## Local Development
 
@@ -53,6 +54,13 @@ Academic Tour Guide is a full-stack internal tool for identifying high-value vis
 1. Install dependencies from `frontend/package.json`.
 2. Set `NEXT_PUBLIC_API_BASE_URL` to the backend URL if it differs from `http://localhost:8000`.
 3. Run `npm run dev` from `frontend/`.
+
+## Production Readiness
+
+- Set `ATG_APP_PASSWORD` to protect the frontend with Basic Auth.
+- Set `ATG_API_ACCESS_TOKEN` and matching `NEXT_PUBLIC_API_ACCESS_TOKEN` to require an API token on backend calls.
+- GitHub Actions CI runs backend tests and the frontend production build on pushes and pull requests.
+- The scheduled worker workflow runs `audit-sources` on weekday mornings and can run other worker commands manually.
 
 ## Worker Commands
 

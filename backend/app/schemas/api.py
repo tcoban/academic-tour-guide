@@ -293,6 +293,8 @@ class DraftCreate(BaseModel):
 class DraftStatusUpdate(BaseModel):
     status: str
     note: str | None = None
+    checklist_confirmations: list[str] = Field(default_factory=list)
+    send_confirmed: bool = False
 
 
 class DraftRead(BaseModel):

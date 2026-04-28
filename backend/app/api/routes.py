@@ -4,7 +4,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import session_dep
@@ -74,6 +74,34 @@ def _draft_counts_by_status(session: Session) -> dict[str, int]:
     for status_name, count in rows:
         counts[status_name] = int(count)
     return counts
+
+
+def _needs_review_checklist_labels(draft: OutreachDraft) -> list[str]:
+    checklist = (draft.metadata_json or {}).get("checklist") or []
+    return [str(item.get("label")) for item in checklist if item.get("status") == "needs_review" and item.get("label")]
+
+
+def _validate_draft_status_transition(draft: OutreachDraft, payload: DraftStatusUpdate) -> None:
+    if payload.status == "reviewed":
+        required_labels = set(_needs_review_checklist_labels(draft))
+        confirmed_labels = set(payload.checklist_confirmations)
+        missing = sorted(required_labels - confirmed_labels)
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Checklist confirmation required before review: {', '.join(missing)}",
+            )
+    if payload.status == "sent_manually":
+        if draft.status != "reviewed":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Draft must be reviewed before it can be marked sent.",
+            )
+        if not payload.send_confirmed:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Manual send confirmation is required before marking the draft sent.",
+            )
 
 
 @router.get("/health")
@@ -435,6 +463,18 @@ def update_slot_template(
     return template
 
 
+@router.delete("/seminar/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_slot_template(template_id: str, session: Session = Depends(session_dep)) -> None:
+    template = session.get(SeminarSlotTemplate, template_id)
+    if not template:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
+    session.execute(delete(OpenSeminarWindow).where(OpenSeminarWindow.derived_from_template_id == template.id))
+    session.delete(template)
+    AvailabilityBuilder(session).rebuild_persisted()
+    Scorer(session).score_all_clusters()
+    session.commit()
+
+
 @router.get("/seminar/overrides", response_model=list[SeminarSlotOverrideRead])
 def list_slot_overrides(session: Session = Depends(session_dep)) -> list[SeminarSlotOverride]:
     return session.scalars(select(SeminarSlotOverride).order_by(SeminarSlotOverride.start_at)).all()
@@ -467,6 +507,17 @@ def update_slot_override(
     Scorer(session).score_all_clusters()
     session.commit()
     return override
+
+
+@router.delete("/seminar/overrides/{override_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_slot_override(override_id: str, session: Session = Depends(session_dep)) -> None:
+    override = session.get(SeminarSlotOverride, override_id)
+    if not override:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Override not found")
+    session.delete(override)
+    AvailabilityBuilder(session).rebuild_persisted()
+    Scorer(session).score_all_clusters()
+    session.commit()
 
 
 @router.post("/outreach-drafts", response_model=DraftRead)
@@ -533,6 +584,7 @@ def update_draft_status(
     draft = session.get(OutreachDraft, draft_id)
     if not draft:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found")
+    _validate_draft_status_transition(draft, payload)
 
     metadata = dict(draft.metadata_json or {})
     history = list(metadata.get("status_history") or [])
@@ -545,6 +597,18 @@ def update_draft_status(
         }
     )
     metadata["status_history"] = history
+    if payload.status == "reviewed":
+        confirmations = list(metadata.get("checklist_confirmations") or [])
+        confirmations.extend(
+            {
+                "label": label,
+                "confirmed_at": datetime.now(UTC).isoformat(),
+            }
+            for label in payload.checklist_confirmations
+        )
+        metadata["checklist_confirmations"] = confirmations
+    if payload.status == "sent_manually":
+        metadata["manual_send_confirmed_at"] = datetime.now(UTC).isoformat()
     draft.status = payload.status
     draft.metadata_json = metadata
     session.add(draft)

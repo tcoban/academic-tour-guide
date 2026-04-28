@@ -1,0 +1,36 @@
+name: Scheduled Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "Worker command to run"
+        required: true
+        default: "audit-sources"
+        type: choice
+        options:
+          - audit-sources
+          - sync-host
+          - ingest
+          - repec-sync
+          - biographer-refresh
+          - rebuild
+  schedule:
+    - cron: "15 5 * * 1-5"
+
+jobs:
+  run-worker:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend
+        working-directory: backend
+        run: python -m pip install -e ".[dev]"
+      - name: Run worker command
+        working-directory: backend
+        run: python -m app.worker "${{ github.event.inputs.command || 'audit-sources' }}"

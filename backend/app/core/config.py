@@ -17,6 +17,10 @@ class Settings:
     evidence_confidence_threshold: float = 0.6
 
     @property
+    def access_token(self) -> str | None:
+        return os.getenv("ATG_API_ACCESS_TOKEN") or None
+
+    @property
     def database_url(self) -> str:
         configured = os.getenv("DATABASE_URL")
         if configured:
@@ -26,4 +30,3 @@ class Settings:
 
 
 settings = Settings()
-

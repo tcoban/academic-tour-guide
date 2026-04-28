@@ -5,7 +5,17 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
-from app.models.entities import FactCandidate, OpenSeminarWindow, Researcher, ResearcherFact, SourceHealthCheck, TalkEvent, TripCluster
+from app.models.entities import (
+    FactCandidate,
+    OpenSeminarWindow,
+    Researcher,
+    ResearcherFact,
+    SeminarSlotOverride,
+    SeminarSlotTemplate,
+    SourceHealthCheck,
+    TalkEvent,
+    TripCluster,
+)
 from app.services.audit import SourceAuditResult
 from app.services.enrichment import normalize_name
 
@@ -86,6 +96,7 @@ def test_daily_catch_and_draft_creation(client, db_session: Session) -> None:
     draft_payload = draft_response.json()
     assert draft_payload["status"] == "draft"
     assert "Biographic hook" in draft_payload["body"]
+    assert "Suggested email draft" in draft_payload["body"]
     assert draft_payload["metadata_json"]["template_key"] == "concierge"
     assert {fact["fact_type"] for fact in draft_payload["metadata_json"]["used_facts"]} == {"phd_institution", "nationality"}
     assert draft_payload["metadata_json"]["cost_share"]["recommendation"] == "strong"
@@ -117,7 +128,11 @@ def test_daily_catch_and_draft_creation(client, db_session: Session) -> None:
 
     status_response = client.patch(
         f"/api/outreach-drafts/{drafts[0]['id']}/status",
-        json={"status": "reviewed", "note": "Ready for admin send"},
+        json={
+            "status": "reviewed",
+            "note": "Ready for admin send",
+            "checklist_confirmations": ["Recipient/name sanity check"],
+        },
     )
     assert status_response.status_code == 200
     status_payload = status_response.json()
@@ -129,6 +144,20 @@ def test_daily_catch_and_draft_creation(client, db_session: Session) -> None:
     reviewed_payload = reviewed_response.json()
     assert len(reviewed_payload) == 1
     assert reviewed_payload[0]["status"] == "reviewed"
+
+    unreviewed_send_response = client.patch(
+        f"/api/outreach-drafts/{drafts[1]['id']}/status",
+        json={"status": "sent_manually", "send_confirmed": True},
+    )
+    assert unreviewed_send_response.status_code == 409
+
+    sent_response = client.patch(
+        f"/api/outreach-drafts/{drafts[0]['id']}/status",
+        json={"status": "sent_manually", "send_confirmed": True, "note": "Sent outside the app."},
+    )
+    assert sent_response.status_code == 200
+    assert sent_response.json()["status"] == "sent_manually"
+    assert sent_response.json()["metadata_json"]["manual_send_confirmed_at"]
 
     bad_status_response = client.patch(
         f"/api/outreach-drafts/{drafts[0]['id']}/status",
@@ -334,6 +363,18 @@ def test_source_health_endpoint_reports_audit_results(client, monkeypatch) -> No
     assert payload[0]["source_type"] == "host_calendar"
 
 
+def test_api_access_token_protects_api_when_configured(client, monkeypatch) -> None:
+    monkeypatch.setenv("ATG_API_ACCESS_TOKEN", "secret-token")
+
+    health_response = client.get("/api/health")
+    blocked_response = client.get("/api/researchers")
+    allowed_response = client.get("/api/researchers", headers={"x-atg-api-key": "secret-token"})
+
+    assert health_response.status_code == 200
+    assert blocked_response.status_code == 401
+    assert allowed_response.status_code == 200
+
+
 def test_source_health_history_lists_persisted_records(client, db_session: Session) -> None:
     db_session.add(
         SourceHealthCheck(
@@ -492,3 +533,51 @@ def test_operator_runbook_summarizes_daily_admin_work(client, db_session: Sessio
         "draft-library",
     ]
     assert payload["recommended_steps"][0]["status"] == "needs_attention"
+
+
+def test_seminar_admin_can_update_and_delete_templates_and_overrides(client, db_session: Session) -> None:
+    template = SeminarSlotTemplate(
+        label="Old Seminar",
+        weekday=1,
+        start_time=datetime(2026, 5, 5, 16, 15).time(),
+        end_time=datetime(2026, 5, 5, 17, 30).time(),
+        timezone="Europe/Zurich",
+    )
+    override = SeminarSlotOverride(
+        start_at=datetime(2026, 5, 5, 16, 15, tzinfo=ZoneInfo("Europe/Zurich")),
+        end_at=datetime(2026, 5, 5, 17, 30, tzinfo=ZoneInfo("Europe/Zurich")),
+        status="blocked",
+        reason="Old block",
+    )
+    db_session.add_all([template, override])
+    db_session.commit()
+
+    template_response = client.patch(
+        f"/api/seminar/templates/{template.id}",
+        json={
+            "label": "Updated Seminar",
+            "weekday": 2,
+            "start_time": "15:00:00",
+            "end_time": "16:00:00",
+            "timezone": "Europe/Zurich",
+            "active": True,
+        },
+    )
+    override_response = client.patch(
+        f"/api/seminar/overrides/{override.id}",
+        json={
+            "start_at": "2026-05-06T15:00:00+02:00",
+            "end_at": "2026-05-06T16:00:00+02:00",
+            "status": "open",
+            "reason": "Updated opening",
+        },
+    )
+    delete_template_response = client.delete(f"/api/seminar/templates/{template.id}")
+    delete_override_response = client.delete(f"/api/seminar/overrides/{override.id}")
+
+    assert template_response.status_code == 200
+    assert template_response.json()["label"] == "Updated Seminar"
+    assert override_response.status_code == 200
+    assert override_response.json()["status"] == "open"
+    assert delete_template_response.status_code == 204
+    assert delete_override_response.status_code == 204
