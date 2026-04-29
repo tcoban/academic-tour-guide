@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, time
+from datetime import date, datetime, time
+
+from app.core.datetime import UTC
 from typing import Any
 from uuid import uuid4
 

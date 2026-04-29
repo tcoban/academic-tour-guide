@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
+
+from app.core.datetime import UTC
 from math import ceil
 from typing import Any
 

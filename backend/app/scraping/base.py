@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
+
+from app.core.datetime import UTC
 from typing import Protocol
 
 import httpx

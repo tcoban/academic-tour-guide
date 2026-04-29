@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
+
+from app.core.datetime import UTC
 from hashlib import sha256
 from io import BytesIO
 import re

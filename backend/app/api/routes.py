@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
+
+from app.core.datetime import UTC
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, desc, func, select
