@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AiEvidenceButton } from "@/components/ai-evidence-button";
 import { EvidenceSearchButton } from "@/components/evidence-search-button";
 import { Panel } from "@/components/panel";
 import { ReviewInbox } from "@/components/review-inbox";
@@ -164,6 +165,7 @@ export default async function ReviewPage({ searchParams }: ReviewPageProps) {
                 label="Search trusted evidence"
                 researcherId={params.researcher_id}
               />
+              <AiEvidenceButton className="ghost-button" researcherId={params.researcher_id} />
               <Link className="ghost-button" href={`/researchers/${params.researcher_id}?missing_fact=${params.fact_type}#manual-facts`}>
                 Add approved {factTypes.find((factType) => factType.key === params.fact_type)?.label ?? "fact"}
               </Link>

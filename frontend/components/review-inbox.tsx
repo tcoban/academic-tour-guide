@@ -74,7 +74,10 @@ export function ReviewInbox({ candidates }: ReviewInboxProps) {
               </Link>
             </div>
           </div>
-          <p className="fine-print">Confidence {Math.round(candidate.confidence * 100)}% | {candidate.origin}</p>
+          <p className="fine-print">
+            Confidence {Math.round(candidate.confidence * 100)}% |{" "}
+            {candidate.origin === "ai_evidence" ? "AI suggested from source document" : candidate.origin}
+          </p>
           {candidate.reviewed_at ? <p className="fine-print">Reviewed {new Date(candidate.reviewed_at).toLocaleString()}</p> : null}
           {candidate.review_note ? <p className="fine-print">Review note: {candidate.review_note}</p> : null}
           {candidate.evidence_snippet ? <p className="fine-print">{candidate.evidence_snippet}</p> : null}

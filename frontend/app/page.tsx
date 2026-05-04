@@ -2,6 +2,7 @@ import type { Route } from "next";
 import Link from "next/link";
 
 import { ActionNotice } from "@/components/action-notice";
+import { AiAutopilotPlanButton } from "@/components/ai-autopilot-plan-button";
 import { ApiOfflineState } from "@/components/api-offline-state";
 import { BusinessCaseRunButton } from "@/components/business-case-run-button";
 import { MorningSweepButton } from "@/components/morning-sweep-button";
@@ -289,6 +290,7 @@ export default async function HomePage() {
           <h2>{cockpit.primary_flow.label}</h2>
           <p>{cockpit.primary_flow.consequence}</p>
           <PrimaryAction flow={cockpit.primary_flow} />
+          <AiAutopilotPlanButton className="ghost-button" />
         </section>
       </section>
 

@@ -82,6 +82,13 @@ export type FactCandidate = {
   created_at: string;
 };
 
+export type AIAutopilotPlan = {
+  status: string;
+  explanation: string;
+  action: OperatorPrimaryFlow;
+  audit_event_id?: string | null;
+};
+
 export type ReviewFact = FactCandidate & {
   researcher_name: string;
 };
@@ -160,7 +167,7 @@ export type TripCluster = {
   }>;
   opportunity_score: number;
   uses_unreviewed_evidence: boolean;
-  rationale: Array<{ label: string; points: number; detail: string }>;
+  rationale: Array<{ label: string; points: number; detail: string; ai_generated?: boolean; ai_status?: string }>;
 };
 
 export type HostCalendarEvent = {
@@ -430,6 +437,7 @@ export type OperatorCockpit = {
   next_best_action?: OperatorTask | null;
   groups: OperatorTaskGroup[];
   recent_changes: AuditEvent[];
+  ai_next_action_explanation?: string | null;
   source_snapshot: {
     last_sync_at?: string | null;
     sources_tracked: number;
@@ -1242,10 +1250,15 @@ export function getDrafts(status?: string): Promise<OutreachDraftListItem[]> {
   return getJson<OutreachDraftListItem[]>(status ? `/outreach-drafts?status=${encodeURIComponent(status)}` : "/outreach-drafts");
 }
 
-export async function createDraft(researcherId: string, tripClusterId: string, templateKey = "kof_invitation"): Promise<OutreachDraft> {
+export async function createDraft(
+  researcherId: string,
+  tripClusterId: string,
+  templateKey = "kof_invitation",
+  options: { useAi?: boolean } = {},
+): Promise<OutreachDraft> {
   return getJson<OutreachDraft>("/outreach-drafts", {
     method: "POST",
-    body: JSON.stringify({ researcher_id: researcherId, trip_cluster_id: tripClusterId, template_key: templateKey }),
+    body: JSON.stringify({ researcher_id: researcherId, trip_cluster_id: tripClusterId, template_key: templateKey, use_ai: options.useAi ?? false }),
   });
 }
 
@@ -1315,6 +1328,27 @@ export async function runEvidenceSearch(researcherId?: string): Promise<JobRunRe
   return getJson<JobRunResponse>(path, {
     method: "POST",
     body,
+  });
+}
+
+export async function runAiEvidenceSearch(researcherId?: string): Promise<JobRunResponse> {
+  const path = researcherId ? `/researchers/${researcherId}/ai/evidence-search` : "/jobs/ai-evidence-refresh";
+  const body = researcherId ? undefined : JSON.stringify({ researcher_id: null });
+  return getJson<JobRunResponse>(path, {
+    method: "POST",
+    body,
+  });
+}
+
+export async function runAiResearchFit(tripClusterId: string): Promise<TripCluster> {
+  return getJson<TripCluster>(`/opportunities/${tripClusterId}/ai/research-fit`, {
+    method: "POST",
+  });
+}
+
+export async function runAiAutopilotPlan(): Promise<AIAutopilotPlan> {
+  return getJson<AIAutopilotPlan>("/operator/ai-plan", {
+    method: "POST",
   });
 }
 

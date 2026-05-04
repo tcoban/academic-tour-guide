@@ -149,6 +149,7 @@ class OperatorCockpit:
                 for key in GROUP_ORDER
             ],
             "recent_changes": recent_changes,
+            "ai_next_action_explanation": None,
         }
 
     def _data_state(self) -> str:

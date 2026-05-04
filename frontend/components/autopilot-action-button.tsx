@@ -84,7 +84,7 @@ export function AutopilotActionButton({
       }
 
       if (action.action_key === "create_draft") {
-        const draft = await createDraft(researcherId, clusterId);
+        const draft = await createDraft(researcherId, clusterId, "kof_invitation", { useAi: true });
         router.push(`/drafts/${draft.id}`);
         return;
       }

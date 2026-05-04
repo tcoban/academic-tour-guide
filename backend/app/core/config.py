@@ -28,6 +28,43 @@ class Settings:
     def demo_tools_enabled(self) -> bool:
         return os.getenv("ROADSHOW_ENABLE_DEMO_TOOLS", "").lower() in {"1", "true", "yes", "on"}
 
+    def _flag(self, name: str, default: bool = False) -> bool:
+        value = os.getenv(name)
+        if value is None:
+            return default
+        return value.lower() in {"1", "true", "yes", "on"}
+
+    @property
+    def ai_enabled(self) -> bool:
+        return self._flag("ROADSHOW_AI_ENABLED")
+
+    @property
+    def ai_evidence_enabled(self) -> bool:
+        return self.ai_enabled and self._flag("ROADSHOW_AI_EVIDENCE_ENABLED", default=True)
+
+    @property
+    def ai_fit_enabled(self) -> bool:
+        return self.ai_enabled and self._flag("ROADSHOW_AI_FIT_ENABLED", default=True)
+
+    @property
+    def ai_draft_enabled(self) -> bool:
+        return self.ai_enabled and self._flag("ROADSHOW_AI_DRAFT_ENABLED", default=True)
+
+    @property
+    def ai_autopilot_enabled(self) -> bool:
+        return self.ai_enabled and self._flag("ROADSHOW_AI_AUTOPILOT_ENABLED", default=True)
+
+    @property
+    def vertex_model(self) -> str:
+        return os.getenv("ROADSHOW_VERTEX_MODEL", "gemini-1.5-flash")
+
+    @property
+    def ai_timeout_seconds(self) -> int:
+        try:
+            return max(1, int(os.getenv("ROADSHOW_AI_TIMEOUT_SECONDS", "45")))
+        except ValueError:
+            return 45
+
     @property
     def frontend_password(self) -> str | None:
         return os.getenv("ROADSHOW_APP_PASSWORD") or os.getenv("ATG_APP_PASSWORD") or None

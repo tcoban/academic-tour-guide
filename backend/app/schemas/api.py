@@ -505,6 +505,14 @@ class OperatorCockpitResponse(BaseModel):
     groups: list[OperatorTaskGroupRead]
     recent_changes: list[dict[str, Any]] = Field(default_factory=list)
     source_snapshot: dict[str, Any] = Field(default_factory=dict)
+    ai_next_action_explanation: str | None = None
+
+
+class AIAutopilotPlanRead(BaseModel):
+    status: str
+    explanation: str
+    action: dict[str, Any]
+    audit_event_id: str | None = None
 
 
 class MorningSweepStepRead(BaseModel):
@@ -877,6 +885,7 @@ class DraftCreate(BaseModel):
     researcher_id: str
     trip_cluster_id: str
     template_key: str = "kof_invitation"
+    use_ai: bool = False
 
 
 class DraftStatusUpdate(BaseModel):

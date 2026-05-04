@@ -40,6 +40,7 @@ from app.models.entities import (
     WishlistMatchParticipant,
 )
 from app.schemas.api import (
+    AIAutopilotPlanRead,
     AuditEventRead,
     AuthResponse,
     BusinessCaseRunRead,
@@ -106,6 +107,7 @@ from app.schemas.api import (
     WishlistMatchParticipantRead,
     WishlistMatchStatusUpdate,
 )
+from app.services.ai import AIAutopilotPlanner, AIEvidenceAssistant, AIResearchFitExplainer
 from app.services.audit import SourceAuditor, SourceReliabilityService
 from app.services.availability import AvailabilityBuilder
 from app.services.business_cases import BusinessCaseService
@@ -567,6 +569,14 @@ def operator_cockpit(session: Session = Depends(session_dep)) -> dict:
     return OperatorCockpit(session).build()
 
 
+@router.post("/operator/ai-plan", response_model=AIAutopilotPlanRead)
+def operator_ai_plan(session: Session = Depends(session_dep)) -> dict:
+    cockpit = OperatorCockpit(session).build()
+    plan = AIAutopilotPlanner(session).plan(cockpit)
+    session.commit()
+    return plan
+
+
 @router.post("/operator/morning-sweep", response_model=MorningSweepResponse)
 def operator_morning_sweep(session: Session = Depends(session_dep)) -> dict:
     result = MorningSweepRunner(session).run()
@@ -692,6 +702,17 @@ def evidence_search(
     return JobRunResponse(**asdict(summary))
 
 
+@router.post("/jobs/ai-evidence-refresh", response_model=JobRunResponse)
+def ai_evidence_refresh(
+    payload: ResearcherJobRequest | None = None,
+    session: Session = Depends(session_dep),
+) -> JobRunResponse:
+    researcher_id = payload.researcher_id if payload else None
+    summary = AIEvidenceAssistant(session).refresh_all(researcher_id)
+    session.commit()
+    return JobRunResponse(**summary)
+
+
 @router.post("/jobs/plausibility-check", response_model=JobRunResponse)
 def plausibility_check(session: Session = Depends(session_dep)) -> JobRunResponse:
     summary = PlausibilityService(session).run()
@@ -774,6 +795,20 @@ def researcher_evidence_search(researcher_id: str, session: Session = Depends(se
     )
     session.commit()
     return JobRunResponse(**asdict(summary))
+
+
+@router.post("/researchers/{researcher_id}/ai/evidence-search", response_model=JobRunResponse)
+def researcher_ai_evidence_search(researcher_id: str, session: Session = Depends(session_dep)) -> JobRunResponse:
+    researcher = session.scalar(
+        select(Researcher)
+        .where(Researcher.id == researcher_id)
+        .options(selectinload(Researcher.documents), selectinload(Researcher.fact_candidates))
+    )
+    if not researcher:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
+    summary = AIEvidenceAssistant(session).search_researcher(researcher)
+    session.commit()
+    return JobRunResponse(**summary)
 
 
 @router.post("/researchers/{researcher_id}/enrich", response_model=ResearcherRead)
@@ -1315,6 +1350,26 @@ def opportunity_workbench(
     return OpportunityWorkbench(session).build(limit=limit)
 
 
+@router.post("/opportunities/{trip_cluster_id}/ai/research-fit", response_model=TripClusterRead)
+def ai_research_fit(trip_cluster_id: str, session: Session = Depends(session_dep)) -> TripCluster:
+    cluster = session.scalar(
+        select(TripCluster)
+        .where(TripCluster.id == trip_cluster_id)
+        .options(
+            selectinload(TripCluster.researcher).selectinload(Researcher.facts),
+            selectinload(TripCluster.researcher).selectinload(Researcher.fact_candidates),
+            selectinload(TripCluster.researcher).selectinload(Researcher.identities),
+            selectinload(TripCluster.researcher).selectinload(Researcher.speaker_profile),
+        )
+    )
+    if not cluster:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trip cluster not found")
+    AIResearchFitExplainer(session).explain(cluster)
+    session.commit()
+    session.refresh(cluster)
+    return cluster
+
+
 @router.get("/source-health", response_model=list[SourceHealthRead])
 def source_health() -> list[dict]:
     return [asdict(result) for result in SourceAuditor().audit()]
@@ -1527,7 +1582,7 @@ def create_draft(payload: DraftCreate, session: Session = Depends(session_dep)) 
     if not researcher or not cluster:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher or cluster not found")
     try:
-        draft = DraftGenerator(session).generate(researcher, cluster, template_key=payload.template_key)
+        draft = DraftGenerator(session).generate(researcher, cluster, template_key=payload.template_key, use_ai=payload.use_ai)
     except ReviewRequiredError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
     session.commit()

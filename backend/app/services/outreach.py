@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.entities import Institution, OpenSeminarWindow, OutreachDraft, RelationshipBrief, Researcher, SpeakerProfile, TripCluster
+from app.services.ai import AIDraftAssistant
 from app.services.enrichment import best_fact, best_fact_candidate
 from app.services.logistics import CostSharingCalculator
 from app.services.opportunities import OpportunityWorkbench
@@ -41,6 +42,7 @@ class DraftGenerator:
         cluster: TripCluster,
         template_key: str = "kof_invitation",
         tour_assembly_context: dict | None = None,
+        use_ai: bool = False,
     ) -> OutreachDraft:
         resolved_template_key = self._resolve_template_key(template_key)
         template = TEMPLATES[resolved_template_key]
@@ -117,6 +119,23 @@ class DraftGenerator:
             template_key=resolved_template_key,
             tour_assembly_context=tour_assembly_context,
         )
+        if use_ai:
+            body, ai_metadata = AIDraftAssistant(self.session).suggest_body(
+                researcher=researcher,
+                cluster=cluster,
+                deterministic_body=body,
+                factual_context=self._ai_factual_context(
+                    researcher=researcher,
+                    cluster=cluster,
+                    matching_window=matching_window,
+                    phd_fact=phd_fact,
+                    nationality_fact=nationality_fact,
+                    metadata=metadata,
+                ),
+            )
+            metadata.update(ai_metadata)
+        else:
+            metadata["ai_generated_body"] = False
 
         draft = OutreachDraft(
             tenant_id=self.tenant.id,
@@ -130,6 +149,32 @@ class DraftGenerator:
         self.session.add(draft)
         self.session.flush()
         return draft
+
+    def _ai_factual_context(
+        self,
+        *,
+        researcher: Researcher,
+        cluster: TripCluster,
+        matching_window: OpenSeminarWindow | None,
+        phd_fact,
+        nationality_fact,
+        metadata: dict,
+    ) -> dict:
+        slot = self._specific_slot_sentence(matching_window)
+        return {
+            "tenant_name": self.tenant.name,
+            "tenant_city": self.tenant.city,
+            "seminar_team": (self.tenant.branding_json or {}).get("seminar_team") or f"{self.tenant.name} seminar team",
+            "speaker_name": researcher.name,
+            "speaker_home_institution": researcher.home_institution,
+            "approved_facts": [self._fact_metadata(phd_fact), self._fact_metadata(nationality_fact)],
+            "slot": slot,
+            "candidate_slot": metadata.get("candidate_slot"),
+            "itinerary": cluster.itinerary,
+            "relationship_summary": (metadata.get("roadshow_context") or {}).get("relationship_summary"),
+            "preference_summary": (metadata.get("roadshow_context") or {}).get("preference_summary"),
+            "checklist": metadata.get("checklist"),
+        }
 
     def _resolve_template_key(self, template_key: str) -> str:
         if template_key == "multi_host_tour":

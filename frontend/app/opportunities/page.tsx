@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { ActionNotice } from "@/components/action-notice";
+import { AiResearchFitButton } from "@/components/ai-research-fit-button";
 import { AutopilotActionButton } from "@/components/autopilot-action-button";
 import { DraftButton } from "@/components/draft-button";
 import { Panel } from "@/components/panel";
@@ -356,6 +357,7 @@ export default async function OpportunitiesPage() {
 
             <div className="opportunity-section">
               <h3>Why it ranks</h3>
+              <AiResearchFitButton className="ghost-button" clusterId={item.cluster.id} />
               <div className="timeline-strip">
                 {item.draft_count > 0 ? (
                   <span className="timeline-chip">
@@ -364,17 +366,18 @@ export default async function OpportunitiesPage() {
                 ) : null}
                 {item.cluster.rationale.map((entry) => (
                   <span className="timeline-chip" key={`${item.cluster.id}-${entry.label}`} title={entry.detail}>
-                    {entry.label} +{entry.points}
+                    {entry.ai_generated ? `${entry.label}` : `${entry.label} +${entry.points}`}
                   </span>
                 ))}
               </div>
               <div className="card-list compact-list">
                 {item.cluster.rationale
-                  .filter((entry) => entry.detail && entry.points > 0)
+                  .filter((entry) => entry.detail && (entry.points > 0 || entry.ai_generated || entry.label === "AI Research Fit Explanation"))
                   .map((entry) => (
                     <div className="list-card" key={`${item.cluster.id}-${entry.label}-detail`}>
                       <strong>{entry.label}</strong>
                       <p className="muted">{entry.detail}</p>
+                      {entry.ai_status ? <p className="fine-print">AI status: {entry.ai_status}</p> : null}
                     </div>
                   ))}
               </div>
@@ -416,7 +419,12 @@ export default async function OpportunitiesPage() {
               {!item.route_review_action && !item.latest_tour_leg_id ? <TourLegButton clusterId={item.cluster.id} /> : null}
               {item.draft_ready ? (
                 <div className="template-actions">
-                  <DraftButton researcherId={item.researcher.id} clusterId={item.cluster.id} />
+                  <DraftButton
+                    researcherId={item.researcher.id}
+                    clusterId={item.cluster.id}
+                    label="Create AI-assisted KOF draft"
+                    useAi
+                  />
                 </div>
               ) : (
                 <ActionNotice

@@ -10,11 +10,19 @@ type DraftButtonProps = {
   researcherId: string;
   clusterId: string;
   templateKey?: string;
+  useAi?: boolean;
   label?: string;
   className?: string;
 };
 
-export function DraftButton({ researcherId, clusterId, templateKey = "kof_invitation", label = "Create KOF invitation draft", className }: DraftButtonProps) {
+export function DraftButton({
+  researcherId,
+  clusterId,
+  templateKey = "kof_invitation",
+  useAi = false,
+  label = "Create KOF invitation draft",
+  className,
+}: DraftButtonProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +31,7 @@ export function DraftButton({ researcherId, clusterId, templateKey = "kof_invita
     try {
       setPending(true);
       setError(null);
-      const draft = await createDraft(researcherId, clusterId, templateKey);
+      const draft = await createDraft(researcherId, clusterId, templateKey, { useAi });
       router.push(`/drafts/${draft.id}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Draft creation failed.");
@@ -36,11 +44,15 @@ export function DraftButton({ researcherId, clusterId, templateKey = "kof_invita
     <PurposeButton
       className={className}
       errorText={error}
-      helperText="Creates one review-gated KOF invitation using approved facts and the selected KOF slot."
+      helperText={
+        useAi
+          ? "Uses Roadshow AI when enabled, but only with approved facts, the selected slot, and deterministic send brief context."
+          : "Creates one review-gated KOF invitation using approved facts and the selected KOF slot."
+      }
       label={label}
       onClick={handleClick}
       pending={pending}
-      runningLabel="Creating KOF invitation..."
+      runningLabel={useAi ? "Creating AI-assisted invitation..." : "Creating KOF invitation..."}
     />
   );
 }

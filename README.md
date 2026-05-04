@@ -17,6 +17,7 @@ Roadshow is a multi-tenant, self-service SaaS platform for academic seminar team
 - Rules-first source adapters for Bocconi, Mannheim, Bonn, BIS, KOF, and an expanded source registry for ECB, LSE, PSE, Oxford, TSE, LMU Munich, Goethe Frankfurt, UZH, ETH, SNB, Bank of England, BSE, Carlos III Madrid, and EUI.
 - RePEc/IDEAS identity sync, institution-linked document discovery, CV/PDF extraction, and evidence-backed fact review.
 - Tenant-aware availability, scoring, research-fit, route plausibility, rail pricing, cost split, wishlist matching, and anonymous opt-in tour assembly.
+- Vertex/Gemini AI assistance for evidence suggestions, research-fit explanations, controlled draft wording, and validated operator planning.
 - Outreach draft generation gated on approved evidence and locked to the same best slot selected by `OpportunityWorkbench.best_window_for_cluster()`.
 
 ## Frontend Highlights
@@ -25,6 +26,7 @@ Roadshow is a multi-tenant, self-service SaaS platform for academic seminar team
 - Register, login, logout, and tenant settings screens for self-service onboarding.
 - Tenant-aware opportunities, host calendar, evidence inbox, drafts, data sources, wishlist, tour legs, and business-case audit surfaces.
 - Actionable-warning pattern: blocker/warning states should provide a direct resolving action or link to the exact workspace that resolves the issue.
+- AI action surfaces remain explicit: evidence suggestions enter the review queue, research-fit text does not change score points, and draft bodies are validated against approved factual context.
 - Draft flow creates one professional host invitation draft for a normal opportunity; logistics and cost rationale stay internal.
 - Anonymous co-host matching masks other institutions unless the opt-in workflow permits disclosure.
 
@@ -50,7 +52,8 @@ Roadshow is a multi-tenant, self-service SaaS platform for academic seminar team
 - The frontend redirects unauthenticated production users to `/login` and uses the `roadshow_session` HTTP-only cookie after login.
 - The backend exposes email/password session endpoints and tenant context. Configure `ROADSHOW_API_ACCESS_TOKEN` only when an additional edge/API token gate is desired; clients then send it as `x-roadshow-api-key`.
 - The backend Dockerfile is Cloud-Run-ready and binds Uvicorn to the dynamic `PORT` environment variable, defaulting to `8080`.
-- Vertex AI/Gemini integration is prepared through `google-cloud-aiplatform` with Application Default Credentials for project `kof-gcloud` in `europe-west6`; do not add Gemini API keys to code or environment files.
+- Vertex AI/Gemini integration uses `google-cloud-aiplatform` with Application Default Credentials for project `kof-gcloud` in `europe-west6`; do not add Gemini API keys to code or environment files.
+- AI assistance is disabled unless `ROADSHOW_AI_ENABLED=true`. Phase flags are `ROADSHOW_AI_EVIDENCE_ENABLED`, `ROADSHOW_AI_FIT_ENABLED`, `ROADSHOW_AI_DRAFT_ENABLED`, and `ROADSHOW_AI_AUTOPILOT_ENABLED`; provider calls use `ROADSHOW_AI_TIMEOUT_SECONDS`.
 - Keep `ROADSHOW_ENABLE_DEMO_TOOLS=false` in production. The seed endpoint is unavailable unless this flag is explicitly enabled.
 - Rail planning defaults to `ROADSHOW_RAIL_CLASS=first` and `ROADSHOW_RAIL_FARE_POLICY=full_fare`; configure `OPENTRANSPORTDATA_API_TOKEN` or Rail Europe ERA credentials for authorized live fare providers.
 - The older `ATG_*` names remain supported only for transition environments.
@@ -94,8 +97,10 @@ This creates deterministic local data with approved facts, pending fact candidat
 - `POST /api/tenants/switch`
 - `POST /api/operator/real-sync`
 - `GET /api/operator/cockpit`
+- `POST /api/operator/ai-plan`
 - `GET /api/tenant/opportunities`
 - `GET /api/opportunities/workbench`
+- `POST /api/opportunities/{trip_cluster_id}/ai/research-fit`
 - `GET /api/calendar/overlay`
 - `GET/POST/PATCH/DELETE /api/wishlist`
 - `POST /api/wishlist-matches/refresh`
@@ -105,6 +110,8 @@ This creates deterministic local data with approved facts, pending fact candidat
 - `POST /api/travel-price-checks`
 - `POST /api/tour-legs/{id}/refresh-prices`
 - `GET /api/review/facts`
+- `POST /api/researchers/{id}/ai/evidence-search`
+- `POST /api/jobs/ai-evidence-refresh`
 - `POST /api/review/facts/{id}/approve`
 - `POST /api/review/facts/{id}/reject`
 - `GET /api/outreach-drafts`

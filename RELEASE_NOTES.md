@@ -1,5 +1,28 @@
 # Release Notes
 
+## v0.3.0 - 2026-05-04
+
+### Added
+
+- Controlled Roadshow AI service on top of Vertex AI/Gemini with JSON-only calls, feature flags, timeout handling, provider fallback, and tenant-scoped audit events.
+- AI Evidence Assistant that reads stored trusted source-document text and creates pending `FactCandidate` records with source snippets and provenance.
+- AI Research-Fit Explainer that appends a zero-point rationale block without changing deterministic opportunity scores.
+- AI-assisted invitation body generation behind the existing approved-fact and best-slot draft gate.
+- AI Autopilot Planner that can suggest only backend-validated actions from the current operator cockpit.
+- Frontend actions for AI evidence search, AI research-fit explanation, AI-assisted draft creation, and AI next-action planning.
+
+### Changed
+
+- Backend and frontend package versions are aligned at `0.3.0`.
+- Normal outreach drafts still use deterministic send briefs, route/cost context, and slot selection; AI can only replace the visible email body after validation.
+- Review inbox copy now identifies candidates suggested by AI from source documents.
+
+### Safety
+
+- AI never auto-approves facts, never changes score points, never creates costs or fares, and never bypasses deterministic route, slot, or outreach gates.
+- AI draft validation rejects money/fare/savings language, unsupported Europe-visit phrasing, and bodies that omit the selected seminar slot.
+- Invalid AI autopilot suggestions are hidden and replaced by Roadshow's deterministic next action.
+
 ## v0.2.1 - 2026-05-04
 
 ### Added
