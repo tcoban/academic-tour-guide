@@ -91,11 +91,14 @@ bash deploy_frontend.sh
 
 The helper script is the recommended pilot path. It uses the existing Secret Manager secret `roadshow-api-access-token`, verifies that `roadshow-backend` exists, builds and deploys `roadshow-frontend`, updates backend CORS to the deployed frontend URL, and prints smoke-test URLs. It never stores or updates the API token.
 
+The helper sets the Cloud Build image tag automatically from the current Git commit, or from `IMAGE_TAG` if supplied. Manual `gcloud builds submit` calls should pass `_IMAGE_TAG` explicitly because `$SHORT_SHA` is not available in all Cloud Shell submission contexts.
+
 Manual equivalent:
 
 ```bash
 BACKEND_URL=$(gcloud run services describe roadshow-backend --region europe-west6 --format="value(status.url)")
-gcloud builds submit --config cloudbuild.frontend.yaml --substitutions _BACKEND_API_BASE_URL=$BACKEND_URL/api
+IMAGE_TAG=$(git rev-parse --short HEAD)
+gcloud builds submit --config cloudbuild.frontend.yaml --substitutions _BACKEND_API_BASE_URL=$BACKEND_URL/api,_IMAGE_TAG=$IMAGE_TAG
 FRONTEND_URL=$(gcloud run services describe roadshow-frontend --region europe-west6 --format="value(status.url)")
 gcloud run services update roadshow-backend --region europe-west6 --update-env-vars ROADSHOW_CORS_ORIGINS=$FRONTEND_URL
 ```

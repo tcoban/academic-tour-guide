@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.3.4 - 2026-05-04
+
+### Fixed
+
+- Cloud Build frontend and backend templates now use an explicit `_IMAGE_TAG` substitution instead of `$SHORT_SHA`, preventing invalid image names during manual Cloud Shell builds.
+
+### Changed
+
+- `deploy_frontend.sh` now derives an image tag from the current Git commit, or from `IMAGE_TAG` when provided, and passes it to Cloud Build.
+- Backend and frontend package versions are aligned at `0.3.4`.
+
+### Operations
+
+- README frontend deployment guidance now documents `_IMAGE_TAG` for manual Cloud Build submissions.
+
 ## v0.3.3 - 2026-05-04
 
 ### Added

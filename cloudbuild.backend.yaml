@@ -6,19 +6,20 @@ substitutions:
   _API_TOKEN_SECRET: roadshow-api-access-token
   _FRONTEND_ORIGIN: https://roadshow-frontend.example.com
   _ROADSHOW_AI_ENABLED: "false"
+  _IMAGE_TAG: manual
 
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
       - build
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - backend
 
   - name: gcr.io/cloud-builders/docker
     args:
       - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
@@ -27,7 +28,7 @@ steps:
       - jobs
       - deploy
       - roadshow-backend-migrate
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - --region=${_REGION}
       - --set-env-vars=ROADSHOW_ENV=production,ROADSHOW_CORS_ORIGINS=${_FRONTEND_ORIGIN},ROADSHOW_AI_ENABLED=${_ROADSHOW_AI_ENABLED}
       - --set-secrets=DATABASE_URL=${_DATABASE_URL_SECRET}:latest,ROADSHOW_API_ACCESS_TOKEN=${_API_TOKEN_SECRET}:latest
@@ -50,7 +51,7 @@ steps:
       - run
       - deploy
       - ${_SERVICE}
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated
@@ -58,4 +59,4 @@ steps:
       - --set-secrets=DATABASE_URL=${_DATABASE_URL_SECRET}:latest,ROADSHOW_API_ACCESS_TOKEN=${_API_TOKEN_SECRET}:latest
 
 images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}

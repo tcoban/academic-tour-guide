@@ -4,13 +4,14 @@ substitutions:
   _ARTIFACT_REPOSITORY: roadshow
   _API_TOKEN_SECRET: roadshow-api-access-token
   _BACKEND_API_BASE_URL: https://roadshow-backend.example.com/api
+  _IMAGE_TAG: manual
 
 steps:
   - name: gcr.io/cloud-builders/docker
     args:
       - build
       - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - --build-arg
       - NEXT_PUBLIC_API_BASE_URL=/api/roadshow
       - frontend
@@ -18,7 +19,7 @@ steps:
   - name: gcr.io/cloud-builders/docker
     args:
       - push
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
 
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: gcloud
@@ -26,7 +27,7 @@ steps:
       - run
       - deploy
       - ${_SERVICE}
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated
@@ -34,4 +35,4 @@ steps:
       - --set-secrets=ROADSHOW_API_ACCESS_TOKEN=${_API_TOKEN_SECRET}:latest
 
 images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:${_IMAGE_TAG}

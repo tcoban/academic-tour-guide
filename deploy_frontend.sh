@@ -8,6 +8,7 @@ BACKEND_SERVICE="${BACKEND_SERVICE:-roadshow-backend}"
 ARTIFACT_REPOSITORY="${ARTIFACT_REPOSITORY:-roadshow}"
 API_TOKEN_SECRET="${API_TOKEN_SECRET:-roadshow-api-access-token}"
 RUNTIME_SERVICE_ACCOUNT="${RUNTIME_SERVICE_ACCOUNT:-}"
+IMAGE_TAG="${IMAGE_TAG:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -26,6 +27,17 @@ require_command() {
 }
 
 require_command gcloud
+
+if [[ -z "$IMAGE_TAG" ]]; then
+  if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    IMAGE_TAG="$(git rev-parse --short HEAD)"
+  else
+    IMAGE_TAG="$(date +%Y%m%d%H%M%S)"
+  fi
+fi
+if [[ ! "$IMAGE_TAG" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+  fail "Image tag '${IMAGE_TAG}' is invalid. Use letters, numbers, underscores, periods, or dashes."
+fi
 
 ACTIVE_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)' | head -n 1)"
 if [[ -z "$ACTIVE_ACCOUNT" ]]; then
@@ -98,11 +110,11 @@ if [[ -z "$BACKEND_URL" ]]; then
 fi
 log "Backend service found at ${BACKEND_URL}."
 
-log "Submitting frontend build and deploy."
+log "Submitting frontend build and deploy with image tag ${IMAGE_TAG}."
 gcloud builds submit \
   --project "$PROJECT_ID" \
   --config cloudbuild.frontend.yaml \
-  --substitutions "_REGION=${REGION},_SERVICE=${FRONTEND_SERVICE},_ARTIFACT_REPOSITORY=${ARTIFACT_REPOSITORY},_API_TOKEN_SECRET=${API_TOKEN_SECRET},_BACKEND_API_BASE_URL=${BACKEND_URL}/api"
+  --substitutions "_REGION=${REGION},_SERVICE=${FRONTEND_SERVICE},_ARTIFACT_REPOSITORY=${ARTIFACT_REPOSITORY},_API_TOKEN_SECRET=${API_TOKEN_SECRET},_BACKEND_API_BASE_URL=${BACKEND_URL}/api,_IMAGE_TAG=${IMAGE_TAG}"
 
 FRONTEND_URL="$(gcloud run services describe "$FRONTEND_SERVICE" \
   --region "$REGION" \
