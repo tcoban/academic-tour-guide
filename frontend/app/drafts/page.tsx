@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ActionNotice } from "@/components/action-notice";
 import { DraftStatusActions } from "@/components/draft-status-actions";
 import { Panel } from "@/components/panel";
-import { getDrafts } from "@/lib/api";
+import { getDrafts } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

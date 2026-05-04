@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ActionNotice, type ActionNoticeAction } from "@/components/action-notice";
 import { Panel } from "@/components/panel";
 import { TourAssemblyDraftButton } from "@/components/tour-assembly-actions";
-import { getTourAssembly } from "@/lib/api";
+import { getTourAssembly } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

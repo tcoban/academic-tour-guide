@@ -14,6 +14,7 @@ const requiredRoutes = [
   "app/business-cases/page.tsx",
 ];
 const requiredComponents = ["components/action-notice.tsx", "components/purpose-button.tsx"];
+const requiredApiRoutes = ["app/api/roadshow/[...path]/route.ts"];
 const requiredStartCopy = [
   "Seminar Manager Start",
   "One next seminar action",
@@ -81,6 +82,13 @@ for (const component of requiredComponents) {
   }
 }
 
+for (const route of requiredApiRoutes) {
+  const path = join(root, route);
+  if (!existsSync(path)) {
+    fail(`missing required API route ${route}`);
+  }
+}
+
 const home = [
   readFileSync(join(root, "app/page.tsx"), "utf8"),
   readFileSync(join(root, "components/morning-sweep-button.tsx"), "utf8"),
@@ -97,6 +105,13 @@ if (primaryActionCount !== 1) {
 }
 
 const actionLabelFile = readFileSync(join(root, "lib/action-labels.ts"), "utf8");
+const apiClientFile = readFileSync(join(root, "lib/api.ts"), "utf8");
+if (apiClientFile.includes("NEXT_PUBLIC_ROADSHOW_API_ACCESS_TOKEN") || apiClientFile.includes("NEXT_PUBLIC_API_ACCESS_TOKEN")) {
+  fail("frontend API client must not expose backend API tokens through NEXT_PUBLIC variables");
+}
+if (!apiClientFile.includes('"/api/roadshow"')) {
+  fail("frontend API client must default to the same-origin Roadshow proxy");
+}
 const labelValues = [...actionLabelFile.matchAll(/:\s*"([^"]+)"/g)].map((match) => match[1]);
 const allowedDuplicateLabels = [...actionLabelFile.matchAll(/ALLOWED_DUPLICATE_ACTION_LABELS\s*=\s*\[([^\]]*)\]/gs)]
   .flatMap((match) => [...match[1].matchAll(/"([^"]+)"/g)].map((labelMatch) => labelMatch[1]));

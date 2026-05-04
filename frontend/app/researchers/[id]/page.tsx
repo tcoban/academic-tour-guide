@@ -7,7 +7,7 @@ import { Panel } from "@/components/panel";
 import { ResearcherRefreshActions } from "@/components/researcher-refresh-actions";
 import { ScoreBadge } from "@/components/score-badge";
 import { TourLegButton } from "@/components/tour-leg-button";
-import { getInstitutions, getRelationshipBrief, getResearcher, getSpeakerProfile } from "@/lib/api";
+import { getInstitutions, getRelationshipBrief, getResearcher, getSpeakerProfile } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

@@ -28,9 +28,10 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api
+        NEXT_PUBLIC_API_BASE_URL: /api/roadshow
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api
+      NEXT_PUBLIC_API_BASE_URL: /api/roadshow
+      ROADSHOW_BACKEND_API_BASE_URL: http://backend:8080/api
       PORT: 8080
     ports:
       - "3000:8080"

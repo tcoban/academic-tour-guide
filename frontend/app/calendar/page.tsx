@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ActionNotice } from "@/components/action-notice";
 import { MorningSweepButton } from "@/components/morning-sweep-button";
 import { Panel } from "@/components/panel";
-import { getCalendarOverlay, getOpportunityWorkbench, type HostCalendarEvent, type OpenSeminarWindow, type OpportunityCard } from "@/lib/api";
+import { getCalendarOverlay, getOpportunityWorkbench, type HostCalendarEvent, type OpenSeminarWindow, type OpportunityCard } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

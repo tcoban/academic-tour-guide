@@ -1,0 +1,37 @@
+substitutions:
+  _REGION: europe-west6
+  _SERVICE: roadshow-frontend
+  _ARTIFACT_REPOSITORY: roadshow
+  _API_TOKEN_SECRET: roadshow-api-access-token
+  _BACKEND_API_BASE_URL: https://roadshow-backend.example.com/api
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - --build-arg
+      - NEXT_PUBLIC_API_BASE_URL=/api/roadshow
+      - frontend
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --set-env-vars=ROADSHOW_ENV=production,NEXT_PUBLIC_API_BASE_URL=/api/roadshow,ROADSHOW_BACKEND_API_BASE_URL=${_BACKEND_API_BASE_URL}
+      - --set-secrets=ROADSHOW_API_ACCESS_TOKEN=${_API_TOKEN_SECRET}:latest
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA

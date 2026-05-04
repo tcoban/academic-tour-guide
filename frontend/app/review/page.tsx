@@ -4,7 +4,7 @@ import { AiEvidenceButton } from "@/components/ai-evidence-button";
 import { EvidenceSearchButton } from "@/components/evidence-search-button";
 import { Panel } from "@/components/panel";
 import { ReviewInbox } from "@/components/review-inbox";
-import { getReviewQueue } from "@/lib/api";
+import { getReviewQueue } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

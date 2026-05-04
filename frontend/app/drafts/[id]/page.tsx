@@ -4,7 +4,7 @@ import { ActionNotice } from "@/components/action-notice";
 import { DraftClipboardActions } from "@/components/draft-clipboard-actions";
 import { DraftStatusActions } from "@/components/draft-status-actions";
 import { Panel } from "@/components/panel";
-import { getDraft } from "@/lib/api";
+import { getDraft } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

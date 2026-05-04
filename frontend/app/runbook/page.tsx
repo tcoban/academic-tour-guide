@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { Panel } from "@/components/panel";
 import { SourceJobRunner } from "@/components/source-job-runner";
-import { getOperatorRunbook, type RunbookStep } from "@/lib/api";
+import { getOperatorRunbook, type RunbookStep } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

@@ -1,5 +1,24 @@
 # Release Notes
 
+## v0.3.2 - 2026-05-04
+
+### Added
+
+- Same-origin Next.js proxy at `/api/roadshow/*` for `roadshow-frontend`, forwarding cookies and adding the backend API token server-side.
+- Cloud Build frontend deployment template for the separate `roadshow-frontend` Cloud Run service.
+- Server-side API wrapper that forwards `roadshow_session` cookies during server-rendered page data loads.
+- Smoke checks that keep backend API tokens out of `NEXT_PUBLIC_*` browser configuration.
+
+### Changed
+
+- Backend and frontend package versions are aligned at `0.3.2`.
+- Frontend production builds now default to `NEXT_PUBLIC_API_BASE_URL=/api/roadshow`.
+- Docker Compose routes the frontend through the same proxy path while using the backend service name internally.
+
+### Security
+
+- `ROADSHOW_API_ACCESS_TOKEN` is now consumed by the frontend server proxy, not by browser-bundled frontend code.
+
 ## v0.3.1 - 2026-05-04
 
 ### Added

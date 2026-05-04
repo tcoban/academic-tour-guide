@@ -5,7 +5,7 @@ import { Panel } from "@/components/panel";
 import { DismissWishlistMatchButton, RefreshWishlistMatchesButton, TourAssemblyProposalButton } from "@/components/tour-assembly-actions";
 import { WishlistAlertActions } from "@/components/wishlist-alert-actions";
 import { WishlistManager } from "@/components/wishlist-manager";
-import { getInstitutions, getResearchers, getWishlist, getWishlistAlerts, getWishlistMatches } from "@/lib/api";
+import { getInstitutions, getResearchers, getWishlist, getWishlistAlerts, getWishlistMatches } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

@@ -7,7 +7,7 @@ import { DraftButton } from "@/components/draft-button";
 import { Panel } from "@/components/panel";
 import { ScoreBadge } from "@/components/score-badge";
 import { TourLegButton } from "@/components/tour-leg-button";
-import { getOpportunityWorkbench } from "@/lib/api";
+import { getOpportunityWorkbench } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

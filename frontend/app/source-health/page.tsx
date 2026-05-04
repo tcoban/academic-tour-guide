@@ -1,7 +1,7 @@
 import { ActionNotice } from "@/components/action-notice";
 import { Panel } from "@/components/panel";
 import { SourceJobRunner } from "@/components/source-job-runner";
-import { getSourceHealth, getSourceHealthHistory, getSourceReliability } from "@/lib/api";
+import { getSourceHealth, getSourceHealthHistory, getSourceReliability } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

@@ -54,6 +54,7 @@ Roadshow is a multi-tenant, self-service SaaS platform for academic seminar team
 - The backend exposes email/password session endpoints and tenant context. Configure `ROADSHOW_API_ACCESS_TOKEN` as the minimum direct-API gate unless the service is protected by IAP or equivalent infrastructure.
 - The backend Dockerfile is Cloud-Run-ready and binds Uvicorn to the dynamic `PORT` environment variable, defaulting to `8080`.
 - The frontend Dockerfile is production-oriented for a separate `roadshow-frontend` Cloud Run service: it runs `npm ci`, `npm run build`, then `next start` on the dynamic `PORT`.
+- The frontend uses a same-origin proxy at `/api/roadshow/*` in production. Browser requests go to `roadshow-frontend`; the Next.js server forwards them to `roadshow-backend` and adds `ROADSHOW_API_ACCESS_TOKEN` server-side.
 - Roadshow production schema changes should be applied through Alembic before service startup, for example with `python -m alembic upgrade head` in a Cloud Run Job or Cloud Build step. The FastAPI app does not create or patch schemas at production startup.
 - Vertex AI/Gemini integration uses `google-cloud-aiplatform` with Application Default Credentials for project `kof-gcloud` in `europe-west6`; do not add Gemini API keys to code or environment files.
 - AI assistance is disabled unless `ROADSHOW_AI_ENABLED=true`. Phase flags are `ROADSHOW_AI_EVIDENCE_ENABLED`, `ROADSHOW_AI_FIT_ENABLED`, `ROADSHOW_AI_DRAFT_ENABLED`, and `ROADSHOW_AI_AUTOPILOT_ENABLED`; provider calls use `ROADSHOW_AI_TIMEOUT_SECONDS`.
@@ -81,6 +82,17 @@ Before running the build, create or choose:
 - Frontend origin substitution `_FRONTEND_ORIGIN`, replacing the placeholder in `cloudbuild.backend.yaml`.
 
 The backend build template deploys a migration job first and then deploys the service. It uses Vertex AI through the Cloud Run service account / ADC, so the service account needs the appropriate Vertex AI permissions.
+
+Frontend deploy path:
+
+```bash
+BACKEND_URL=$(gcloud run services describe roadshow-backend --region europe-west6 --format="value(status.url)")
+gcloud builds submit --config cloudbuild.frontend.yaml --substitutions _BACKEND_API_BASE_URL=$BACKEND_URL/api
+FRONTEND_URL=$(gcloud run services describe roadshow-frontend --region europe-west6 --format="value(status.url)")
+gcloud run services update roadshow-backend --region europe-west6 --update-env-vars ROADSHOW_CORS_ORIGINS=$FRONTEND_URL
+```
+
+The frontend build template deploys `roadshow-frontend` as a public Cloud Run service with Roadshow login. It requires the same `roadshow-api-access-token` Secret Manager secret as the backend so the proxy can authenticate backend API calls without exposing that token to the browser.
 
 ## Worker Commands
 

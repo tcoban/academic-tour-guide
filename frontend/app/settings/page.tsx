@@ -4,7 +4,7 @@ import type { Route } from "next";
 import { ApiOfflineState } from "@/components/api-offline-state";
 import { Panel } from "@/components/panel";
 import { TenantSettingsForm } from "@/components/tenant-settings-form";
-import { getCurrentTenant, getCurrentTenantSettings, getMe, getTenantSourceSubscriptions, RoadshowApiError } from "@/lib/api";
+import { getCurrentTenant, getCurrentTenantSettings, getMe, getTenantSourceSubscriptions, RoadshowApiError } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

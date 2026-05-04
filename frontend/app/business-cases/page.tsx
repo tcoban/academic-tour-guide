@@ -5,7 +5,7 @@ import { ActionNotice } from "@/components/action-notice";
 import { ApiOfflineState } from "@/components/api-offline-state";
 import { BusinessCaseRunButton } from "@/components/business-case-run-button";
 import { Panel } from "@/components/panel";
-import { getBusinessCaseRuns, type BusinessCaseResult, type BusinessCaseRun } from "@/lib/api";
+import { getBusinessCaseRuns, type BusinessCaseResult, type BusinessCaseRun } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

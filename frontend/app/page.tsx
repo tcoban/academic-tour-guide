@@ -7,7 +7,7 @@ import { ApiOfflineState } from "@/components/api-offline-state";
 import { BusinessCaseRunButton } from "@/components/business-case-run-button";
 import { MorningSweepButton } from "@/components/morning-sweep-button";
 import { Panel } from "@/components/panel";
-import { getBusinessCaseRuns, getOperatorCockpit, type BusinessCaseRun, type OperatorPrimaryFlow, type OperatorSetupBlocker } from "@/lib/api";
+import { getBusinessCaseRuns, getOperatorCockpit, type BusinessCaseRun, type OperatorPrimaryFlow, type OperatorSetupBlocker } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

@@ -10,7 +10,8 @@ export function middleware(request: NextRequest) {
   const publicPath =
     request.nextUrl.pathname.startsWith("/login") ||
     request.nextUrl.pathname.startsWith("/register") ||
-    request.nextUrl.pathname.startsWith("/api/auth");
+    request.nextUrl.pathname.startsWith("/api/auth") ||
+    request.nextUrl.pathname.startsWith("/api/roadshow");
   if (publicPath || request.cookies.get("roadshow_session")) {
     return NextResponse.next();
   }

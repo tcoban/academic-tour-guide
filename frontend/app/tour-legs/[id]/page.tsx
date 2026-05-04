@@ -4,7 +4,7 @@ import { ActionNotice } from "@/components/action-notice";
 import { FeedbackSignalForm } from "@/components/feedback-signal-form";
 import { Panel } from "@/components/panel";
 import { RefreshPricesButton } from "@/components/refresh-prices-button";
-import { getInstitutions, getTourLeg } from "@/lib/api";
+import { getInstitutions, getTourLeg } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

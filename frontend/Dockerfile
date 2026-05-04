@@ -10,7 +10,7 @@ COPY app ./app
 COPY components ./components
 COPY lib ./lib
 
-ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
+ARG NEXT_PUBLIC_API_BASE_URL=/api/roadshow
 ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
 ENV NODE_ENV=production
 RUN npm run build

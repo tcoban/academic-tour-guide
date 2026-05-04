@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { ActionNotice } from "@/components/action-notice";
 import { Panel } from "@/components/panel";
-import { getTourAssemblies } from "@/lib/api";
+import { getTourAssemblies } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 

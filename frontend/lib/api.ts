@@ -832,8 +832,18 @@ export type BusinessCaseRun = {
   results: BusinessCaseResult[];
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api";
-const API_ACCESS_TOKEN = process.env.NEXT_PUBLIC_ROADSHOW_API_ACCESS_TOKEN ?? process.env.NEXT_PUBLIC_API_ACCESS_TOKEN;
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api/roadshow";
+
+function apiUrl(path: string): string {
+  if (API_BASE.startsWith("http://") || API_BASE.startsWith("https://")) {
+    return `${API_BASE}${path}`;
+  }
+  if (typeof window !== "undefined") {
+    return `${API_BASE}${path}`;
+  }
+  const serverOrigin = process.env.ROADSHOW_FRONTEND_INTERNAL_ORIGIN ?? `http://127.0.0.1:${process.env.PORT ?? "3000"}`;
+  return `${serverOrigin}${API_BASE}${path}`;
+}
 
 export class RoadshowApiError extends Error {
   status?: number;
@@ -847,15 +857,14 @@ export class RoadshowApiError extends Error {
   }
 }
 
-async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
+export async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    response = await fetch(apiUrl(path), {
       ...init,
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...(API_ACCESS_TOKEN ? { "x-roadshow-api-key": API_ACCESS_TOKEN, "x-atg-api-key": API_ACCESS_TOKEN } : {}),
         ...(init?.headers ?? {}),
       },
       cache: "no-store",

@@ -5,7 +5,7 @@ import { MorningSweepButton } from "@/components/morning-sweep-button";
 import { OverrideManager } from "@/components/override-manager";
 import { Panel } from "@/components/panel";
 import { TemplateManager } from "@/components/template-manager";
-import { getCalendarOverlay, getSeminarOverrides, getSeminarTemplates } from "@/lib/api";
+import { getCalendarOverlay, getSeminarOverrides, getSeminarTemplates } from "@/lib/server-api";
 
 export const dynamic = "force-dynamic";
 
