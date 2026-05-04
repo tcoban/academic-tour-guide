@@ -6,6 +6,7 @@ import os
 import tempfile
 
 from fastapi.testclient import TestClient
+from fastapi import Request
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -23,6 +24,7 @@ from app.db.session import Base
 from app.main import app
 from app.models.entities import Institution
 from app.services.seed import seed_reference_data
+from app.services.tenancy import SESSION_COOKIE_NAME, ensure_default_tenant, resolve_auth_session
 
 
 SQLALCHEMY_DATABASE_URL = "sqlite://"
@@ -53,8 +55,13 @@ def db_session() -> Generator[Session, None, None]:
 
 @pytest.fixture()
 def client() -> Generator[TestClient, None, None]:
-    def override_get_db() -> Generator[Session, None, None]:
+    def override_get_db(request: Request) -> Generator[Session, None, None]:
         with TestingSessionLocal() as session:
+            token = request.headers.get("x-roadshow-session") or request.cookies.get(SESSION_COOKIE_NAME)
+            auth_session = resolve_auth_session(session, token)
+            if not auth_session:
+                tenant = ensure_default_tenant(session)
+                session.info.setdefault("tenant_id", tenant.id)
             yield session
 
     app.dependency_overrides[session_dep] = override_get_db

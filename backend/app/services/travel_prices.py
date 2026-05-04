@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.entities import TravelPriceCheck, TourLeg
 from app.services.scoring import DEFAULT_COORDINATES, haversine_km
+from app.services.tenancy import get_session_tenant
 
 
 CITY_COORDINATES: dict[str, tuple[float, float]] = {
@@ -249,6 +250,7 @@ class FallbackRailEstimateProvider:
 class TravelPriceChecker:
     def __init__(self, session: Session, providers: list[FareProvider] | None = None) -> None:
         self.session = session
+        self.tenant = get_session_tenant(session)
         self.providers = providers or [
             OpenTransportDataOjpFareProvider(),
             RailEuropeEraProvider(),
@@ -352,6 +354,7 @@ class TravelPriceChecker:
             select(TravelPriceCheck)
             .where(
                 TravelPriceCheck.cache_key == cache_key,
+                TravelPriceCheck.tenant_id == self.tenant.id,
                 TravelPriceCheck.expires_at > now,
                 TravelPriceCheck.status.in_(["live", "cached", "estimate_requires_review"]),
             )
@@ -361,6 +364,7 @@ class TravelPriceChecker:
 
     def _clone_cached(self, cached: TravelPriceCheck, tour_leg_id: str) -> TravelPriceCheck:
         return TravelPriceCheck(
+            tenant_id=self.tenant.id,
             tour_leg_id=tour_leg_id,
             cache_key=cached.cache_key,
             origin_city=cached.origin_city,
@@ -385,6 +389,7 @@ class TravelPriceChecker:
     def _record_from_quote(self, quote: PriceQuote, tour_leg_id: str | None, cache_key: str) -> TravelPriceCheck:
         now = datetime.now(UTC)
         return TravelPriceCheck(
+            tenant_id=self.tenant.id,
             tour_leg_id=tour_leg_id,
             cache_key=cache_key,
             origin_city=quote.origin_city,

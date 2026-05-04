@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.entities import HostCalendarEvent, OpenSeminarWindow, SeminarSlotOverride, SeminarSlotTemplate
+from app.services.tenancy import get_session_tenant, tenant_scope
 
 
 @dataclass(slots=True)
@@ -33,19 +34,25 @@ def ensure_timezone(value: datetime) -> datetime:
 class AvailabilityBuilder:
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.tenant = get_session_tenant(session)
 
     def build(self, start_date: date, end_date: date) -> list[AvailabilityWindow]:
         templates = self.session.scalars(
-            select(SeminarSlotTemplate).where(SeminarSlotTemplate.active.is_(True))
+            select(SeminarSlotTemplate).where(
+                tenant_scope(SeminarSlotTemplate, self.tenant),
+                SeminarSlotTemplate.active.is_(True),
+            )
         ).all()
         host_events = self.session.scalars(
             select(HostCalendarEvent).where(
+                tenant_scope(HostCalendarEvent, self.tenant),
                 HostCalendarEvent.starts_at >= datetime.combine(start_date, datetime.min.time()),
                 HostCalendarEvent.starts_at <= datetime.combine(end_date, datetime.max.time()),
             )
         ).all()
         overrides = self.session.scalars(
             select(SeminarSlotOverride).where(
+                tenant_scope(SeminarSlotOverride, self.tenant),
                 SeminarSlotOverride.start_at >= datetime.combine(start_date, datetime.min.time()),
                 SeminarSlotOverride.start_at <= datetime.combine(end_date, datetime.max.time()),
             )
@@ -115,6 +122,7 @@ class AvailabilityBuilder:
 
         self.session.execute(
             delete(OpenSeminarWindow).where(
+                tenant_scope(OpenSeminarWindow, self.tenant),
                 OpenSeminarWindow.starts_at >= datetime.combine(start_date, datetime.min.time()),
                 OpenSeminarWindow.starts_at <= datetime.combine(end_date, datetime.max.time()),
             )
@@ -122,6 +130,7 @@ class AvailabilityBuilder:
         persisted: list[OpenSeminarWindow] = []
         for window in windows:
             item = OpenSeminarWindow(
+                tenant_id=self.tenant.id,
                 starts_at=window.starts_at,
                 ends_at=window.ends_at,
                 source=window.source,

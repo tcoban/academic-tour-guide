@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import delete, desc, func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -25,10 +25,15 @@ from app.models.entities import (
     SourceHealthCheck,
     SourceDocument,
     TalkEvent,
+    Tenant,
+    TenantMembership,
+    TenantSettings,
+    TenantSourceSubscription,
     TourAssemblyProposal,
     TourLeg,
     TravelPriceCheck,
     TripCluster,
+    User,
     WishlistAlert,
     WishlistEntry,
     WishlistMatchGroup,
@@ -36,6 +41,7 @@ from app.models.entities import (
 )
 from app.schemas.api import (
     AuditEventRead,
+    AuthResponse,
     BusinessCaseRunRead,
     CalendarOverlayResponse,
     DailyCatchResponse,
@@ -52,12 +58,15 @@ from app.schemas.api import (
     InstitutionProfileRead,
     InstitutionProfileUpdate,
     JobRunResponse,
+    LoginRequest,
+    MeRead,
     MorningSweepResponse,
     OperatorCockpitResponse,
     OperatorRunbookResponse,
     OpportunityWorkbenchResponse,
     RelationshipBriefRead,
     RelationshipBriefUpdate,
+    RegisterRequest,
     ResearcherDetailRead,
     ResearcherJobRequest,
     ResearcherRead,
@@ -74,6 +83,14 @@ from app.schemas.api import (
     SourceDocumentRead,
     SpeakerProfileRead,
     SpeakerProfileUpdate,
+    TenantRead,
+    TenantSettingsRead,
+    TenantSettingsUpdate,
+    TenantSourceSubscriptionCreate,
+    TenantSourceSubscriptionRead,
+    TenantSourceSubscriptionUpdate,
+    TenantSwitchRequest,
+    TenantUpdate,
     TourAssemblyProposalRead,
     TourAssemblyProposalRequest,
     TourLegProposalRequest,
@@ -102,6 +119,17 @@ from app.services.review import FactReviewService
 from app.services.roadshow import RoadshowService
 from app.services.scoring import Scorer
 from app.services.seed import seed_demo_data
+from app.services.tenancy import (
+    SESSION_COOKIE_NAME,
+    authenticate_user,
+    ensure_tenant_settings,
+    get_session_tenant,
+    register_user,
+    resolve_auth_session,
+    revoke_auth_session,
+    switch_active_tenant,
+    tenant_scope,
+)
 from app.services.tour_assembly import TourAssemblyService
 from app.services.travel_prices import PriceQuoteRequest, TravelPriceChecker
 
@@ -115,8 +143,35 @@ def _count(session: Session, statement) -> int:
     return int(session.scalar(statement) or 0)
 
 
+def _tenant_read(tenant: Tenant) -> TenantRead:
+    return TenantRead.model_validate(tenant)
+
+
+def _auth_response(response: Response, auth_session) -> AuthResponse:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=auth_session.token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        expires=auth_session.expires_at,
+    )
+    return AuthResponse(
+        user_id=auth_session.user.id,
+        email=auth_session.user.email,
+        name=auth_session.user.name,
+        active_tenant=_tenant_read(auth_session.tenant),
+        expires_at=auth_session.expires_at,
+    )
+
+
 def _draft_counts_by_status(session: Session) -> dict[str, int]:
-    rows = session.execute(select(OutreachDraft.status, func.count()).group_by(OutreachDraft.status)).all()
+    tenant = get_session_tenant(session)
+    rows = session.execute(
+        select(OutreachDraft.status, func.count())
+        .where(OutreachDraft.tenant_id == tenant.id)
+        .group_by(OutreachDraft.status)
+    ).all()
     counts = {status_name: 0 for status_name in sorted(ALLOWED_DRAFT_STATUSES)}
     for status_name, count in rows:
         counts[status_name] = int(count)
@@ -212,6 +267,200 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.post("/auth/register", response_model=AuthResponse)
+def register(payload: RegisterRequest, response: Response, session: Session = Depends(session_dep)) -> AuthResponse:
+    try:
+        auth_session = register_user(
+            session,
+            email=payload.email,
+            name=payload.name,
+            password=payload.password,
+            institution_name=payload.institution_name,
+            city=payload.city,
+            country=payload.country,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    session.commit()
+    return _auth_response(response, auth_session)
+
+
+@router.post("/auth/login", response_model=AuthResponse)
+def login(payload: LoginRequest, response: Response, session: Session = Depends(session_dep)) -> AuthResponse:
+    try:
+        auth_session = authenticate_user(session, payload.email, payload.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    session.commit()
+    return _auth_response(response, auth_session)
+
+
+@router.post("/auth/logout")
+def logout(request: Request, response: Response, session: Session = Depends(session_dep)) -> dict[str, str]:
+    token = request.headers.get("x-roadshow-session") or request.cookies.get(SESSION_COOKIE_NAME)
+    revoked = revoke_auth_session(session, token)
+    session.commit()
+    response.delete_cookie(SESSION_COOKIE_NAME)
+    return {"status": "logged_out", "session": "revoked" if revoked else "cleared"}
+
+
+@router.get("/me", response_model=MeRead)
+def me(session: Session = Depends(session_dep)) -> MeRead:
+    tenant = get_session_tenant(session)
+    user_id = session.info.get("user_id")
+    if not user_id:
+        return MeRead(authenticated=False, active_tenant=_tenant_read(tenant), memberships=[])
+    user = session.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .options(selectinload(User.memberships).selectinload(TenantMembership.tenant))
+    )
+    if not user:
+        return MeRead(authenticated=False, active_tenant=_tenant_read(tenant), memberships=[])
+    memberships = [
+        {"tenant": _tenant_read(membership.tenant), "role": membership.role, "status": membership.status}
+        for membership in user.memberships
+        if membership.status == "active"
+    ]
+    return MeRead(
+        authenticated=True,
+        user_id=user.id,
+        email=user.email,
+        name=user.name,
+        active_tenant=_tenant_read(tenant),
+        memberships=memberships,
+    )
+
+
+@router.get("/tenants/current", response_model=TenantRead)
+def get_current_tenant(session: Session = Depends(session_dep)) -> Tenant:
+    return get_session_tenant(session)
+
+
+@router.patch("/tenants/current", response_model=TenantRead)
+def update_current_tenant(payload: TenantUpdate, session: Session = Depends(session_dep)) -> Tenant:
+    tenant = get_session_tenant(session)
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(tenant, field, value)
+    tenant.updated_at = datetime.now(UTC)
+    session.add(tenant)
+    session.commit()
+    return tenant
+
+
+@router.get("/tenants/current/settings", response_model=TenantSettingsRead)
+def get_current_tenant_settings(session: Session = Depends(session_dep)) -> TenantSettings:
+    return ensure_tenant_settings(session, get_session_tenant(session))
+
+
+@router.patch("/tenants/current/settings", response_model=TenantSettingsRead)
+def update_current_tenant_settings(payload: TenantSettingsUpdate, session: Session = Depends(session_dep)) -> TenantSettings:
+    settings_row = ensure_tenant_settings(session, get_session_tenant(session))
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(settings_row, field, value)
+    settings_row.updated_at = datetime.now(UTC)
+    session.add(settings_row)
+    session.commit()
+    return settings_row
+
+
+@router.post("/tenants/switch", response_model=MeRead)
+def switch_tenant(payload: TenantSwitchRequest, request: Request, session: Session = Depends(session_dep)) -> MeRead:
+    user_id = session.info.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Roadshow login required.")
+    membership = session.scalar(
+        select(TenantMembership)
+        .where(TenantMembership.user_id == user_id, TenantMembership.tenant_id == payload.tenant_id, TenantMembership.status == "active")
+        .options(selectinload(TenantMembership.tenant))
+    )
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="The active user is not a member of that tenant.")
+    token = request.cookies.get(SESSION_COOKIE_NAME) or request.headers.get("x-roadshow-session")
+    auth_session = resolve_auth_session(session, token)
+    if auth_session:
+        switch_active_tenant(session, auth_session, membership.tenant_id)
+    session.info["tenant_id"] = membership.tenant_id
+    session.commit()
+    return me(session)
+
+
+@router.get("/tenant/source-subscriptions", response_model=list[TenantSourceSubscriptionRead])
+def list_source_subscriptions(session: Session = Depends(session_dep)) -> list[TenantSourceSubscription]:
+    tenant = get_session_tenant(session)
+    return session.scalars(
+        select(TenantSourceSubscription)
+        .where(TenantSourceSubscription.tenant_id == tenant.id)
+        .order_by(TenantSourceSubscription.source_name)
+    ).all()
+
+
+@router.post("/tenant/source-subscriptions", response_model=TenantSourceSubscriptionRead)
+def create_source_subscription(
+    payload: TenantSourceSubscriptionCreate,
+    session: Session = Depends(session_dep),
+) -> TenantSourceSubscription:
+    tenant = get_session_tenant(session)
+    existing = session.scalar(
+        select(TenantSourceSubscription).where(
+            TenantSourceSubscription.tenant_id == tenant.id,
+            TenantSourceSubscription.source_name == payload.source_name,
+        )
+    )
+    if existing:
+        existing.status = payload.status
+        existing.notes = payload.notes
+        existing.updated_at = datetime.now(UTC)
+        session.commit()
+        return existing
+    subscription = TenantSourceSubscription(tenant_id=tenant.id, **payload.model_dump())
+    session.add(subscription)
+    session.commit()
+    return subscription
+
+
+@router.patch("/tenant/source-subscriptions/{subscription_id}", response_model=TenantSourceSubscriptionRead)
+def update_source_subscription(
+    subscription_id: str,
+    payload: TenantSourceSubscriptionUpdate,
+    session: Session = Depends(session_dep),
+) -> TenantSourceSubscription:
+    tenant = get_session_tenant(session)
+    subscription = session.scalar(
+        select(TenantSourceSubscription).where(
+            TenantSourceSubscription.id == subscription_id,
+            TenantSourceSubscription.tenant_id == tenant.id,
+        )
+    )
+    if not subscription:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source subscription not found.")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(subscription, field, value)
+    subscription.updated_at = datetime.now(UTC)
+    session.commit()
+    return subscription
+
+
+@router.delete("/tenant/source-subscriptions/{subscription_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_source_subscription(subscription_id: str, session: Session = Depends(session_dep)) -> None:
+    tenant = get_session_tenant(session)
+    subscription = session.scalar(
+        select(TenantSourceSubscription).where(
+            TenantSourceSubscription.id == subscription_id,
+            TenantSourceSubscription.tenant_id == tenant.id,
+        )
+    )
+    if not subscription:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source subscription not found.")
+    session.delete(subscription)
+    session.commit()
+
+
+@router.get("/tenant/opportunities", response_model=OpportunityWorkbenchResponse)
+def tenant_opportunities(limit: int = Query(default=25, ge=1, le=100), session: Session = Depends(session_dep)) -> dict:
+    return OpportunityWorkbench(session).build(limit=limit)
+
+
 @router.get("/dashboard/daily-catch", response_model=DailyCatchResponse)
 def daily_catch(session: Session = Depends(session_dep)) -> DailyCatchResponse:
     cutoff = datetime.now(UTC) - timedelta(hours=24)
@@ -224,11 +473,12 @@ def daily_catch(session: Session = Depends(session_dep)) -> DailyCatchResponse:
 
 @router.get("/operator/runbook", response_model=OperatorRunbookResponse)
 def operator_runbook(session: Session = Depends(session_dep)) -> OperatorRunbookResponse:
+    tenant = get_session_tenant(session)
     reliability = SourceReliabilityService().summarize(session)
     source_attention_count = sum(1 for source in reliability if source.needs_attention)
     pending_fact_count = _count(session, select(func.count()).select_from(FactCandidate).where(FactCandidate.status == "pending"))
-    open_window_count = _count(session, select(func.count()).select_from(OpenSeminarWindow))
-    host_event_count = _count(session, select(func.count()).select_from(HostCalendarEvent))
+    open_window_count = _count(session, select(func.count()).select_from(OpenSeminarWindow).where(OpenSeminarWindow.tenant_id == tenant.id))
+    host_event_count = _count(session, select(func.count()).select_from(HostCalendarEvent).where(HostCalendarEvent.tenant_id == tenant.id))
     draft_counts_by_status = _draft_counts_by_status(session)
     workbench = OpportunityWorkbench(session).build(limit=100)
     draft_ready_opportunity_count = sum(1 for opportunity in workbench["opportunities"] if opportunity["draft_ready"])
@@ -348,8 +598,10 @@ def list_business_case_runs(
     limit: int = Query(default=10, ge=1, le=50),
     session: Session = Depends(session_dep),
 ) -> list[BusinessCaseRun]:
+    tenant = get_session_tenant(session)
     return session.scalars(
         select(BusinessCaseRun)
+        .where(BusinessCaseRun.tenant_id == tenant.id)
         .options(selectinload(BusinessCaseRun.results))
         .order_by(desc(BusinessCaseRun.started_at))
         .limit(limit)
@@ -358,9 +610,10 @@ def list_business_case_runs(
 
 @router.get("/business-cases/runs/{run_id}", response_model=BusinessCaseRunRead)
 def get_business_case_run(run_id: str, session: Session = Depends(session_dep)) -> BusinessCaseRun:
+    tenant = get_session_tenant(session)
     run = session.scalar(
         select(BusinessCaseRun)
-        .where(BusinessCaseRun.id == run_id)
+        .where(BusinessCaseRun.id == run_id, BusinessCaseRun.tenant_id == tenant.id)
         .options(selectinload(BusinessCaseRun.results))
     )
     if not run:
@@ -602,9 +855,14 @@ def update_institution_profile(
 
 @router.get("/wishlist", response_model=list[WishlistEntryRead])
 def list_wishlist(session: Session = Depends(session_dep)) -> list[WishlistEntry]:
+    tenant = get_session_tenant(session)
     RoadshowService(session).ensure_kof_institution()
     session.commit()
-    return session.scalars(select(WishlistEntry).order_by(WishlistEntry.priority.desc(), WishlistEntry.created_at.desc())).all()
+    return session.scalars(
+        select(WishlistEntry)
+        .where(WishlistEntry.tenant_id == tenant.id)
+        .order_by(WishlistEntry.priority.desc(), WishlistEntry.created_at.desc())
+    ).all()
 
 
 @router.post("/wishlist", response_model=WishlistEntryRead)
@@ -626,7 +884,8 @@ def update_wishlist_entry(
     payload: WishlistEntryCreate,
     session: Session = Depends(session_dep),
 ) -> WishlistEntry:
-    entry = session.get(WishlistEntry, entry_id)
+    tenant = get_session_tenant(session)
+    entry = session.scalar(select(WishlistEntry).where(WishlistEntry.id == entry_id, WishlistEntry.tenant_id == tenant.id))
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist entry not found")
     if not session.get(Institution, payload.institution_id):
@@ -642,7 +901,8 @@ def update_wishlist_entry(
 
 @router.delete("/wishlist/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_wishlist_entry(entry_id: str, session: Session = Depends(session_dep)) -> None:
-    entry = session.get(WishlistEntry, entry_id)
+    tenant = get_session_tenant(session)
+    entry = session.scalar(select(WishlistEntry).where(WishlistEntry.id == entry_id, WishlistEntry.tenant_id == tenant.id))
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist entry not found")
     RoadshowService(session).delete_wishlist_entry(entry)
@@ -653,6 +913,7 @@ def delete_wishlist_entry(entry_id: str, session: Session = Depends(session_dep)
 
 @router.get("/wishlist-alerts", response_model=list[WishlistAlertRead])
 def list_wishlist_alerts(session: Session = Depends(session_dep)) -> list[WishlistAlertRead]:
+    tenant = get_session_tenant(session)
     RoadshowService(session).refresh_wishlist_alerts()
     session.commit()
     alerts = session.scalars(
@@ -661,6 +922,7 @@ def list_wishlist_alerts(session: Session = Depends(session_dep)) -> list[Wishli
             selectinload(WishlistAlert.researcher),
             selectinload(WishlistAlert.wishlist_entry).selectinload(WishlistEntry.institution),
         )
+        .where(WishlistAlert.tenant_id == tenant.id)
         .order_by(WishlistAlert.status, desc(WishlistAlert.score), WishlistAlert.created_at.desc())
     ).all()
     return [_wishlist_alert_read(alert) for alert in alerts]
@@ -674,9 +936,10 @@ def update_wishlist_alert_status(
 ) -> WishlistAlertRead:
     if payload.status not in ALLOWED_WISHLIST_ALERT_STATUSES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported wishlist alert status")
+    tenant = get_session_tenant(session)
     alert = session.scalar(
         select(WishlistAlert)
-        .where(WishlistAlert.id == alert_id)
+        .where(WishlistAlert.id == alert_id, WishlistAlert.tenant_id == tenant.id)
         .options(
             selectinload(WishlistAlert.researcher),
             selectinload(WishlistAlert.wishlist_entry).selectinload(WishlistEntry.institution),
@@ -706,11 +969,13 @@ def update_wishlist_alert_status(
 
 @router.post("/wishlist-matches/refresh", response_model=list[WishlistMatchGroupRead])
 def refresh_wishlist_matches(session: Session = Depends(session_dep)) -> list[WishlistMatchGroupRead]:
+    tenant = get_session_tenant(session)
     groups = TourAssemblyService(session).refresh_wishlist_matches()
     session.commit()
     groups = session.scalars(
         select(WishlistMatchGroup)
         .where(WishlistMatchGroup.id.in_([group.id for group in groups]))
+        .where(WishlistMatchGroup.participants.any(WishlistMatchParticipant.tenant_id == tenant.id))
         .options(selectinload(WishlistMatchGroup.participants))
         .order_by(desc(WishlistMatchGroup.score), WishlistMatchGroup.created_at.desc())
     ).all()
@@ -719,10 +984,14 @@ def refresh_wishlist_matches(session: Session = Depends(session_dep)) -> list[Wi
 
 @router.get("/wishlist-matches", response_model=list[WishlistMatchGroupRead])
 def list_wishlist_matches(session: Session = Depends(session_dep)) -> list[WishlistMatchGroupRead]:
+    tenant = get_session_tenant(session)
     groups = session.scalars(
         select(WishlistMatchGroup)
         .options(selectinload(WishlistMatchGroup.participants))
-        .where(WishlistMatchGroup.status != "stale")
+        .where(
+            WishlistMatchGroup.status != "stale",
+            WishlistMatchGroup.participants.any(WishlistMatchParticipant.tenant_id == tenant.id),
+        )
         .order_by(desc(WishlistMatchGroup.score), WishlistMatchGroup.created_at.desc())
     ).all()
     return [_wishlist_match_read(group) for group in groups]
@@ -730,8 +999,14 @@ def list_wishlist_matches(session: Session = Depends(session_dep)) -> list[Wishl
 
 @router.get("/wishlist-matches/{match_id}", response_model=WishlistMatchGroupRead)
 def get_wishlist_match(match_id: str, session: Session = Depends(session_dep)) -> WishlistMatchGroupRead:
+    tenant = get_session_tenant(session)
     group = session.scalar(
-        select(WishlistMatchGroup).where(WishlistMatchGroup.id == match_id).options(selectinload(WishlistMatchGroup.participants))
+        select(WishlistMatchGroup)
+        .where(
+            WishlistMatchGroup.id == match_id,
+            WishlistMatchGroup.participants.any(WishlistMatchParticipant.tenant_id == tenant.id),
+        )
+        .options(selectinload(WishlistMatchGroup.participants))
     )
     if not group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist match not found")
@@ -746,8 +1021,14 @@ def update_wishlist_match_status(
 ) -> WishlistMatchGroupRead:
     if payload.status not in ALLOWED_WISHLIST_MATCH_STATUSES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported wishlist match status")
+    tenant = get_session_tenant(session)
     group = session.scalar(
-        select(WishlistMatchGroup).where(WishlistMatchGroup.id == match_id).options(selectinload(WishlistMatchGroup.participants))
+        select(WishlistMatchGroup)
+        .where(
+            WishlistMatchGroup.id == match_id,
+            WishlistMatchGroup.participants.any(WishlistMatchParticipant.tenant_id == tenant.id),
+        )
+        .options(selectinload(WishlistMatchGroup.participants))
     )
     if not group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist match not found")
@@ -776,8 +1057,11 @@ def propose_tour_leg(payload: TourLegProposalRequest, session: Session = Depends
 
 @router.post("/travel-price-checks", response_model=TravelPriceCheckRead)
 def create_travel_price_check(payload: TravelPriceCheckCreate, session: Session = Depends(session_dep)) -> TravelPriceCheck:
-    if payload.tour_leg_id and not session.get(TourLeg, payload.tour_leg_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour leg not found")
+    tenant = get_session_tenant(session)
+    if payload.tour_leg_id:
+        tour_leg = session.scalar(select(TourLeg).where(TourLeg.id == payload.tour_leg_id, TourLeg.tenant_id == tenant.id))
+        if not tour_leg:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour leg not found")
     check = TravelPriceChecker(session).quote(
         PriceQuoteRequest(
             origin_city=payload.origin_city,
@@ -800,11 +1084,17 @@ def list_travel_price_checks(
     limit: int = Query(default=100, ge=1, le=500),
     session: Session = Depends(session_dep),
 ) -> list[TravelPriceCheck]:
-    query = select(TravelPriceCheck).order_by(TravelPriceCheck.fetched_at.desc()).limit(limit)
+    tenant = get_session_tenant(session)
+    query = (
+        select(TravelPriceCheck)
+        .where(TravelPriceCheck.tenant_id == tenant.id)
+        .order_by(TravelPriceCheck.fetched_at.desc())
+        .limit(limit)
+    )
     if tour_leg_id:
         query = (
             select(TravelPriceCheck)
-            .where(TravelPriceCheck.tour_leg_id == tour_leg_id)
+            .where(TravelPriceCheck.tenant_id == tenant.id, TravelPriceCheck.tour_leg_id == tour_leg_id)
             .order_by(TravelPriceCheck.fetched_at.desc())
             .limit(limit)
         )
@@ -813,12 +1103,21 @@ def list_travel_price_checks(
 
 @router.get("/tour-legs", response_model=list[TourLegRead])
 def list_tour_legs(session: Session = Depends(session_dep)) -> list[TourLeg]:
-    return session.scalars(select(TourLeg).options(selectinload(TourLeg.stops)).order_by(TourLeg.created_at.desc())).all()
+    tenant = get_session_tenant(session)
+    return session.scalars(
+        select(TourLeg)
+        .where(TourLeg.tenant_id == tenant.id)
+        .options(selectinload(TourLeg.stops))
+        .order_by(TourLeg.created_at.desc())
+    ).all()
 
 
 @router.post("/tour-legs/{tour_leg_id}/refresh-prices", response_model=TourLegRead)
 def refresh_tour_leg_prices(tour_leg_id: str, session: Session = Depends(session_dep)) -> TourLeg:
-    tour_leg = session.scalar(select(TourLeg).where(TourLeg.id == tour_leg_id).options(selectinload(TourLeg.stops)))
+    tenant = get_session_tenant(session)
+    tour_leg = session.scalar(
+        select(TourLeg).where(TourLeg.id == tour_leg_id, TourLeg.tenant_id == tenant.id).options(selectinload(TourLeg.stops))
+    )
     if not tour_leg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour leg not found")
     TravelPriceChecker(session).refresh_tour_leg(tour_leg, force=True)
@@ -832,12 +1131,17 @@ def refresh_tour_leg_prices(tour_leg_id: str, session: Session = Depends(session
         },
     )
     session.commit()
-    return session.scalar(select(TourLeg).where(TourLeg.id == tour_leg.id).options(selectinload(TourLeg.stops)))
+    return session.scalar(
+        select(TourLeg).where(TourLeg.id == tour_leg.id, TourLeg.tenant_id == tenant.id).options(selectinload(TourLeg.stops))
+    )
 
 
 @router.get("/tour-legs/{tour_leg_id}", response_model=TourLegRead)
 def get_tour_leg(tour_leg_id: str, session: Session = Depends(session_dep)) -> TourLeg:
-    tour_leg = session.scalar(select(TourLeg).where(TourLeg.id == tour_leg_id).options(selectinload(TourLeg.stops)))
+    tenant = get_session_tenant(session)
+    tour_leg = session.scalar(
+        select(TourLeg).where(TourLeg.id == tour_leg_id, TourLeg.tenant_id == tenant.id).options(selectinload(TourLeg.stops))
+    )
     if not tour_leg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour leg not found")
     return tour_leg
@@ -848,7 +1152,13 @@ def propose_tour_assembly(
     payload: TourAssemblyProposalRequest,
     session: Session = Depends(session_dep),
 ) -> TourAssemblyProposalRead:
-    group = session.get(WishlistMatchGroup, payload.match_group_id)
+    tenant = get_session_tenant(session)
+    group = session.scalar(
+        select(WishlistMatchGroup).where(
+            WishlistMatchGroup.id == payload.match_group_id,
+            WishlistMatchGroup.participants.any(WishlistMatchParticipant.tenant_id == tenant.id),
+        )
+    )
     if not group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist match not found")
     try:
@@ -868,8 +1178,10 @@ def propose_tour_assembly(
 
 @router.get("/tour-assemblies", response_model=list[TourAssemblyProposalRead])
 def list_tour_assemblies(session: Session = Depends(session_dep)) -> list[TourAssemblyProposalRead]:
+    tenant = get_session_tenant(session)
     proposals = session.scalars(
         select(TourAssemblyProposal)
+        .where(TourAssemblyProposal.tenant_id == tenant.id)
         .options(selectinload(TourAssemblyProposal.match_group).selectinload(WishlistMatchGroup.participants))
         .order_by(TourAssemblyProposal.status, TourAssemblyProposal.created_at.desc())
     ).all()
@@ -878,9 +1190,10 @@ def list_tour_assemblies(session: Session = Depends(session_dep)) -> list[TourAs
 
 @router.get("/tour-assemblies/{proposal_id}", response_model=TourAssemblyProposalRead)
 def get_tour_assembly(proposal_id: str, session: Session = Depends(session_dep)) -> TourAssemblyProposalRead:
+    tenant = get_session_tenant(session)
     proposal = session.scalar(
         select(TourAssemblyProposal)
-        .where(TourAssemblyProposal.id == proposal_id)
+        .where(TourAssemblyProposal.id == proposal_id, TourAssemblyProposal.tenant_id == tenant.id)
         .options(selectinload(TourAssemblyProposal.match_group).selectinload(WishlistMatchGroup.participants))
     )
     if not proposal:
@@ -890,7 +1203,8 @@ def get_tour_assembly(proposal_id: str, session: Session = Depends(session_dep))
 
 @router.post("/tour-assemblies/{proposal_id}/speaker-draft", response_model=DraftRead)
 def create_tour_assembly_speaker_draft(proposal_id: str, session: Session = Depends(session_dep)) -> OutreachDraft:
-    proposal = session.get(TourAssemblyProposal, proposal_id)
+    tenant = get_session_tenant(session)
+    proposal = session.scalar(select(TourAssemblyProposal).where(TourAssemblyProposal.id == proposal_id, TourAssemblyProposal.tenant_id == tenant.id))
     if not proposal:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour assembly proposal not found")
     try:
@@ -936,12 +1250,15 @@ def update_relationship_brief(
 
 @router.post("/feedback-signals", response_model=FeedbackSignalRead)
 def create_feedback_signal(payload: FeedbackSignalCreate, session: Session = Depends(session_dep)) -> FeedbackSignal:
+    tenant = get_session_tenant(session)
     if not session.get(Researcher, payload.researcher_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
     if not session.get(Institution, payload.institution_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Institution not found")
-    if payload.tour_leg_id and not session.get(TourLeg, payload.tour_leg_id):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour leg not found")
+    if payload.tour_leg_id:
+        tour_leg = session.scalar(select(TourLeg).where(TourLeg.id == payload.tour_leg_id, TourLeg.tenant_id == tenant.id))
+        if not tour_leg:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour leg not found")
     signal = RoadshowService(session).create_feedback_signal(payload.model_dump())
     session.commit()
     session.refresh(signal)
@@ -954,9 +1271,15 @@ def list_audit_events(
     limit: int = Query(default=100, ge=1, le=500),
     session: Session = Depends(session_dep),
 ) -> list[AuditEvent]:
-    query = select(AuditEvent).order_by(AuditEvent.created_at.desc()).limit(limit)
+    tenant = get_session_tenant(session)
+    query = select(AuditEvent).where(AuditEvent.tenant_id == tenant.id).order_by(AuditEvent.created_at.desc()).limit(limit)
     if entity_type:
-        query = select(AuditEvent).where(AuditEvent.entity_type == entity_type).order_by(AuditEvent.created_at.desc()).limit(limit)
+        query = (
+            select(AuditEvent)
+            .where(AuditEvent.tenant_id == tenant.id, AuditEvent.entity_type == entity_type)
+            .order_by(AuditEvent.created_at.desc())
+            .limit(limit)
+        )
     return session.scalars(query).all()
 
 
@@ -970,12 +1293,17 @@ def calendar_overlay(
     rebuild: bool = Query(default=False),
     session: Session = Depends(session_dep),
 ) -> CalendarOverlayResponse:
+    tenant = get_session_tenant(session)
     if rebuild:
         AvailabilityBuilder(session).rebuild_persisted()
         Scorer(session).score_all_clusters()
         session.commit()
-    host_events = session.scalars(select(HostCalendarEvent).order_by(HostCalendarEvent.starts_at)).all()
-    open_windows = session.scalars(select(OpenSeminarWindow).order_by(OpenSeminarWindow.starts_at)).all()
+    host_events = session.scalars(
+        select(HostCalendarEvent).where(tenant_scope(HostCalendarEvent, tenant)).order_by(HostCalendarEvent.starts_at)
+    ).all()
+    open_windows = session.scalars(
+        select(OpenSeminarWindow).where(tenant_scope(OpenSeminarWindow, tenant)).order_by(OpenSeminarWindow.starts_at)
+    ).all()
     return CalendarOverlayResponse(host_events=host_events, open_windows=open_windows)
 
 
@@ -1089,12 +1417,18 @@ def reject_fact_candidate(
 
 @router.get("/seminar/templates", response_model=list[SeminarSlotTemplateRead])
 def list_slot_templates(session: Session = Depends(session_dep)) -> list[SeminarSlotTemplate]:
-    return session.scalars(select(SeminarSlotTemplate).order_by(SeminarSlotTemplate.weekday, SeminarSlotTemplate.start_time)).all()
+    tenant = get_session_tenant(session)
+    return session.scalars(
+        select(SeminarSlotTemplate)
+        .where(SeminarSlotTemplate.tenant_id == tenant.id)
+        .order_by(SeminarSlotTemplate.weekday, SeminarSlotTemplate.start_time)
+    ).all()
 
 
 @router.post("/seminar/templates", response_model=SeminarSlotTemplateRead)
 def create_slot_template(payload: SeminarSlotTemplateCreate, session: Session = Depends(session_dep)) -> SeminarSlotTemplate:
-    template = SeminarSlotTemplate(**payload.model_dump())
+    tenant = get_session_tenant(session)
+    template = SeminarSlotTemplate(tenant_id=tenant.id, **payload.model_dump())
     session.add(template)
     session.flush()
     AvailabilityBuilder(session).rebuild_persisted()
@@ -1109,7 +1443,8 @@ def update_slot_template(
     payload: SeminarSlotTemplateCreate,
     session: Session = Depends(session_dep),
 ) -> SeminarSlotTemplate:
-    template = session.get(SeminarSlotTemplate, template_id)
+    tenant = get_session_tenant(session)
+    template = session.scalar(select(SeminarSlotTemplate).where(SeminarSlotTemplate.id == template_id, SeminarSlotTemplate.tenant_id == tenant.id))
     if not template:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
     for field, value in payload.model_dump().items():
@@ -1123,10 +1458,11 @@ def update_slot_template(
 
 @router.delete("/seminar/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_slot_template(template_id: str, session: Session = Depends(session_dep)) -> None:
-    template = session.get(SeminarSlotTemplate, template_id)
+    tenant = get_session_tenant(session)
+    template = session.scalar(select(SeminarSlotTemplate).where(SeminarSlotTemplate.id == template_id, SeminarSlotTemplate.tenant_id == tenant.id))
     if not template:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Template not found")
-    session.execute(delete(OpenSeminarWindow).where(OpenSeminarWindow.derived_from_template_id == template.id))
+    session.execute(delete(OpenSeminarWindow).where(OpenSeminarWindow.tenant_id == tenant.id, OpenSeminarWindow.derived_from_template_id == template.id))
     session.delete(template)
     AvailabilityBuilder(session).rebuild_persisted()
     Scorer(session).score_all_clusters()
@@ -1135,12 +1471,16 @@ def delete_slot_template(template_id: str, session: Session = Depends(session_de
 
 @router.get("/seminar/overrides", response_model=list[SeminarSlotOverrideRead])
 def list_slot_overrides(session: Session = Depends(session_dep)) -> list[SeminarSlotOverride]:
-    return session.scalars(select(SeminarSlotOverride).order_by(SeminarSlotOverride.start_at)).all()
+    tenant = get_session_tenant(session)
+    return session.scalars(
+        select(SeminarSlotOverride).where(SeminarSlotOverride.tenant_id == tenant.id).order_by(SeminarSlotOverride.start_at)
+    ).all()
 
 
 @router.post("/seminar/overrides", response_model=SeminarSlotOverrideRead)
 def create_slot_override(payload: SeminarSlotOverrideCreate, session: Session = Depends(session_dep)) -> SeminarSlotOverride:
-    override = SeminarSlotOverride(**payload.model_dump())
+    tenant = get_session_tenant(session)
+    override = SeminarSlotOverride(tenant_id=tenant.id, **payload.model_dump())
     session.add(override)
     session.flush()
     AvailabilityBuilder(session).rebuild_persisted()
@@ -1155,7 +1495,8 @@ def update_slot_override(
     payload: SeminarSlotOverrideCreate,
     session: Session = Depends(session_dep),
 ) -> SeminarSlotOverride:
-    override = session.get(SeminarSlotOverride, override_id)
+    tenant = get_session_tenant(session)
+    override = session.scalar(select(SeminarSlotOverride).where(SeminarSlotOverride.id == override_id, SeminarSlotOverride.tenant_id == tenant.id))
     if not override:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Override not found")
     for field, value in payload.model_dump().items():
@@ -1169,7 +1510,8 @@ def update_slot_override(
 
 @router.delete("/seminar/overrides/{override_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_slot_override(override_id: str, session: Session = Depends(session_dep)) -> None:
-    override = session.get(SeminarSlotOverride, override_id)
+    tenant = get_session_tenant(session)
+    override = session.scalar(select(SeminarSlotOverride).where(SeminarSlotOverride.id == override_id, SeminarSlotOverride.tenant_id == tenant.id))
     if not override:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Override not found")
     session.delete(override)
@@ -1198,8 +1540,10 @@ def list_drafts(
     status_filter: str | None = Query(default=None, alias="status"),
     session: Session = Depends(session_dep),
 ) -> list[DraftListRead]:
+    tenant = get_session_tenant(session)
     query = (
         select(OutreachDraft)
+        .where(OutreachDraft.tenant_id == tenant.id)
         .options(selectinload(OutreachDraft.researcher), selectinload(OutreachDraft.trip_cluster))
         .order_by(OutreachDraft.created_at.desc())
         .limit(limit)
@@ -1209,7 +1553,7 @@ def list_drafts(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported draft status filter")
         query = (
             select(OutreachDraft)
-            .where(OutreachDraft.status == status_filter)
+            .where(OutreachDraft.tenant_id == tenant.id, OutreachDraft.status == status_filter)
             .options(selectinload(OutreachDraft.researcher), selectinload(OutreachDraft.trip_cluster))
             .order_by(OutreachDraft.created_at.desc())
             .limit(limit)
@@ -1240,7 +1584,8 @@ def update_draft_status(
 ) -> OutreachDraft:
     if payload.status not in ALLOWED_DRAFT_STATUSES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported draft status")
-    draft = session.get(OutreachDraft, draft_id)
+    tenant = get_session_tenant(session)
+    draft = session.scalar(select(OutreachDraft).where(OutreachDraft.id == draft_id, OutreachDraft.tenant_id == tenant.id))
     if not draft:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found")
     _validate_draft_status_transition(draft, payload)
@@ -1278,7 +1623,8 @@ def update_draft_status(
 
 @router.get("/outreach-drafts/{draft_id}", response_model=DraftRead)
 def get_draft(draft_id: str, session: Session = Depends(session_dep)) -> OutreachDraft:
-    draft = session.get(OutreachDraft, draft_id)
+    tenant = get_session_tenant(session)
+    draft = session.scalar(select(OutreachDraft).where(OutreachDraft.id == draft_id, OutreachDraft.tenant_id == tenant.id))
     if not draft:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found")
     return draft

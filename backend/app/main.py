@@ -35,8 +35,14 @@ app.add_middleware(
 @app.middleware("http")
 async def require_api_access_token(request: Request, call_next):
     access_token = settings.access_token
-    if access_token and request.url.path.startswith(settings.api_prefix) and request.url.path != f"{settings.api_prefix}/health":
-        provided = request.headers.get("x-atg-api-key")
+    public_paths = {
+        f"{settings.api_prefix}/health",
+        f"{settings.api_prefix}/auth/register",
+        f"{settings.api_prefix}/auth/login",
+        f"{settings.api_prefix}/auth/logout",
+    }
+    if access_token and request.url.path.startswith(settings.api_prefix) and request.url.path not in public_paths:
+        provided = request.headers.get("x-roadshow-api-key") or request.headers.get("x-atg-api-key")
         if provided != access_token:
             return JSONResponse({"detail": "Roadshow API access token required."}, status_code=401)
     return await call_next(request)

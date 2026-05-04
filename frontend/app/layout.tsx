@@ -18,7 +18,7 @@ const manrope = Manrope({
 
 export const metadata: Metadata = {
   title: "Roadshow",
-  description: "KOF-first academic tour concierge and opportunity desk.",
+  description: "Multi-institution academic tour concierge and seminar opportunity desk.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
@@ -30,7 +30,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
             <div className="brand">
               <span className="brand-title">Roadshow</span>
               <span className="brand-subtitle">
-                Scout the European seminar circuit, model tour legs, and give KOF a concierge-grade Roadshow desk.
+                Scout the seminar circuit, model tour legs, and run a concierge-grade invitation desk for your institution.
               </span>
             </div>
             <nav className="nav-links">
@@ -42,7 +42,10 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
               <details className="nav-tools">
                 <summary>Settings</summary>
                 <div className="nav-menu">
-                  <Link href="/seminar-admin">KOF Slots</Link>
+                  <Link href={"/settings" as Route}>Workspace Settings</Link>
+                  <Link href={"/login" as Route}>Sign In</Link>
+                  <Link href={"/register" as Route}>Create Workspace</Link>
+                  <Link href="/seminar-admin">Host Slots</Link>
                   <Link href="/wishlist">Wishlist</Link>
                   <Link href="/tour-assemblies">Tour Assemblies</Link>
                   <Link href="/tour-legs">Tour Legs</Link>

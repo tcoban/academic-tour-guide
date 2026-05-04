@@ -24,6 +24,7 @@ from app.models.entities import (
     TourLeg,
     WishlistAlert,
     WishlistMatchGroup,
+    WishlistMatchParticipant,
 )
 from app.services.audit import SourceAuditor, SourceReliabilityService
 from app.services.availability import AvailabilityBuilder
@@ -33,6 +34,7 @@ from app.services.opportunities import OpportunityWorkbench
 from app.services.plausibility import PlausibilityService
 from app.services.roadshow import RoadshowService
 from app.services.scoring import Scorer
+from app.services.tenancy import get_session_tenant
 from app.services.tour_assembly import TourAssemblyService
 
 
@@ -112,6 +114,7 @@ class MorningSweepStep:
 class OperatorCockpit:
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.tenant = get_session_tenant(session)
 
     def build(self) -> dict[str, Any]:
         now = datetime.now(UTC)
@@ -154,11 +157,21 @@ class OperatorCockpit:
         talk_payloads = list(self.session.scalars(select(TalkEvent.raw_payload)).all())
         document_metadata = list(self.session.scalars(select(SourceDocument.metadata_json)).all())
         fact_origins = list(self.session.scalars(select(ResearcherFact.approval_origin)).all())
-        host_metadata = list(self.session.scalars(select(HostCalendarEvent.metadata_json)).all())
-        template_count = int(self.session.scalar(select(func.count()).select_from(SeminarSlotTemplate)) or 0)
-        open_window_count = int(self.session.scalar(select(func.count()).select_from(OpenSeminarWindow)) or 0)
-        draft_count = int(self.session.scalar(select(func.count()).select_from(OutreachDraft)) or 0)
-        tour_leg_count = int(self.session.scalar(select(func.count()).select_from(TourLeg)) or 0)
+        host_metadata = list(
+            self.session.scalars(select(HostCalendarEvent.metadata_json).where(HostCalendarEvent.tenant_id == self.tenant.id)).all()
+        )
+        template_count = int(
+            self.session.scalar(select(func.count()).select_from(SeminarSlotTemplate).where(SeminarSlotTemplate.tenant_id == self.tenant.id)) or 0
+        )
+        open_window_count = int(
+            self.session.scalar(select(func.count()).select_from(OpenSeminarWindow).where(OpenSeminarWindow.tenant_id == self.tenant.id)) or 0
+        )
+        draft_count = int(
+            self.session.scalar(select(func.count()).select_from(OutreachDraft).where(OutreachDraft.tenant_id == self.tenant.id)) or 0
+        )
+        tour_leg_count = int(
+            self.session.scalar(select(func.count()).select_from(TourLeg).where(TourLeg.tenant_id == self.tenant.id)) or 0
+        )
 
         def is_demo_metadata(value: Any) -> bool:
             return isinstance(value, dict) and str(value.get("source", "")).startswith("demo")
@@ -192,7 +205,13 @@ class OperatorCockpit:
 
     def _setup_blockers(self, summary_metrics: dict[str, int], data_state: str) -> list[OperatorSetupBlocker]:
         template_count = int(
-            self.session.scalar(select(func.count()).select_from(SeminarSlotTemplate).where(SeminarSlotTemplate.active.is_(True))) or 0
+            self.session.scalar(
+                select(func.count()).select_from(SeminarSlotTemplate).where(
+                    SeminarSlotTemplate.tenant_id == self.tenant.id,
+                    SeminarSlotTemplate.active.is_(True),
+                )
+            )
+            or 0
         )
         talk_count = int(self.session.scalar(select(func.count()).select_from(TalkEvent)) or 0)
         blockers: list[OperatorSetupBlocker] = []
@@ -336,18 +355,24 @@ class OperatorCockpit:
         alerts = self.session.scalars(
             select(WishlistAlert)
             .options(selectinload(WishlistAlert.researcher), selectinload(WishlistAlert.trip_cluster))
-            .where(WishlistAlert.status == "new")
+            .where(WishlistAlert.tenant_id == self.tenant.id, WishlistAlert.status == "new")
             .order_by(desc(WishlistAlert.score), WishlistAlert.created_at.desc())
         ).all()
         match_groups = self.session.scalars(
             select(WishlistMatchGroup)
             .options(selectinload(WishlistMatchGroup.participants))
-            .where(WishlistMatchGroup.status == "new")
+            .where(
+                WishlistMatchGroup.status == "new",
+                WishlistMatchGroup.participants.any(WishlistMatchParticipant.tenant_id == self.tenant.id),
+            )
             .order_by(desc(WishlistMatchGroup.score), WishlistMatchGroup.created_at.desc())
             .limit(5)
         ).all()
         assemblies = self.session.scalars(
-            select(TourAssemblyProposal).where(TourAssemblyProposal.status.in_(("blocked", "ready_for_review"))).order_by(
+            select(TourAssemblyProposal).where(
+                TourAssemblyProposal.tenant_id == self.tenant.id,
+                TourAssemblyProposal.status.in_(("blocked", "ready_for_review")),
+            ).order_by(
                 TourAssemblyProposal.status,
                 TourAssemblyProposal.created_at.desc(),
             )
@@ -501,9 +526,21 @@ class OperatorCockpit:
         ]
 
     def _calendar_tasks(self) -> list[OperatorTask]:
-        template_count = int(self.session.scalar(select(func.count()).select_from(SeminarSlotTemplate).where(SeminarSlotTemplate.active.is_(True))) or 0)
-        open_window_count = int(self.session.scalar(select(func.count()).select_from(OpenSeminarWindow)) or 0)
-        host_event_count = int(self.session.scalar(select(func.count()).select_from(HostCalendarEvent)) or 0)
+        template_count = int(
+            self.session.scalar(
+                select(func.count()).select_from(SeminarSlotTemplate).where(
+                    SeminarSlotTemplate.tenant_id == self.tenant.id,
+                    SeminarSlotTemplate.active.is_(True),
+                )
+            )
+            or 0
+        )
+        open_window_count = int(
+            self.session.scalar(select(func.count()).select_from(OpenSeminarWindow).where(OpenSeminarWindow.tenant_id == self.tenant.id)) or 0
+        )
+        host_event_count = int(
+            self.session.scalar(select(func.count()).select_from(HostCalendarEvent).where(HostCalendarEvent.tenant_id == self.tenant.id)) or 0
+        )
         if template_count == 0:
             return [
                 OperatorTask(
@@ -626,13 +663,32 @@ class OperatorCockpit:
         return tasks
 
     def _draft_tasks(self) -> list[OperatorTask]:
-        draft_count = int(self.session.scalar(select(func.count()).select_from(OutreachDraft).where(OutreachDraft.status == "draft")) or 0)
+        draft_count = int(
+            self.session.scalar(
+                select(func.count()).select_from(OutreachDraft).where(
+                    OutreachDraft.tenant_id == self.tenant.id,
+                    OutreachDraft.status == "draft",
+                )
+            )
+            or 0
+        )
         reviewed_count = int(
-            self.session.scalar(select(func.count()).select_from(OutreachDraft).where(OutreachDraft.status == "reviewed")) or 0
+            self.session.scalar(
+                select(func.count()).select_from(OutreachDraft).where(
+                    OutreachDraft.tenant_id == self.tenant.id,
+                    OutreachDraft.status == "reviewed",
+                )
+            )
+            or 0
         )
         tasks: list[OperatorTask] = []
         if draft_count:
-            latest = self.session.scalar(select(OutreachDraft).where(OutreachDraft.status == "draft").order_by(desc(OutreachDraft.created_at)).limit(1))
+            latest = self.session.scalar(
+                select(OutreachDraft)
+                .where(OutreachDraft.tenant_id == self.tenant.id, OutreachDraft.status == "draft")
+                .order_by(desc(OutreachDraft.created_at))
+                .limit(1)
+            )
             tasks.append(
                 OperatorTask(
                     id="draft-review-generated",
@@ -662,7 +718,12 @@ class OperatorCockpit:
         return tasks
 
     def _tour_leg_tasks(self) -> list[OperatorTask]:
-        proposed_count = int(self.session.scalar(select(func.count()).select_from(TourLeg).where(TourLeg.status == "proposed")) or 0)
+        proposed_count = int(
+            self.session.scalar(
+                select(func.count()).select_from(TourLeg).where(TourLeg.tenant_id == self.tenant.id, TourLeg.status == "proposed")
+            )
+            or 0
+        )
         if not proposed_count:
             return []
         return [
@@ -682,7 +743,7 @@ class OperatorCockpit:
         today = datetime.now(UTC).date()
         past_legs = self.session.scalars(
             select(TourLeg)
-            .where(TourLeg.end_date < today)
+            .where(TourLeg.tenant_id == self.tenant.id, TourLeg.end_date < today)
             .options(selectinload(TourLeg.feedback_signals), selectinload(TourLeg.researcher))
             .order_by(desc(TourLeg.end_date))
             .limit(5)
@@ -710,20 +771,55 @@ class OperatorCockpit:
         return {
             "urgent_tasks": sum(1 for task in tasks if task.severity == "high"),
             "pending_tasks": len(tasks),
-            "open_windows": int(self.session.scalar(select(func.count()).select_from(OpenSeminarWindow)) or 0),
+            "open_windows": int(
+                self.session.scalar(select(func.count()).select_from(OpenSeminarWindow).where(OpenSeminarWindow.tenant_id == self.tenant.id)) or 0
+            ),
             "active_kof_slots": int(
-                self.session.scalar(select(func.count()).select_from(SeminarSlotTemplate).where(SeminarSlotTemplate.active.is_(True))) or 0
+                self.session.scalar(
+                    select(func.count()).select_from(SeminarSlotTemplate).where(
+                        SeminarSlotTemplate.tenant_id == self.tenant.id,
+                        SeminarSlotTemplate.active.is_(True),
+                    )
+                )
+                or 0
             ),
             "speaker_visits": int(self.session.scalar(select(func.count()).select_from(TalkEvent)) or 0),
             "pending_evidence": int(self.session.scalar(select(func.count()).select_from(FactCandidate).where(FactCandidate.status == "pending")) or 0),
-            "new_wishlist_alerts": int(self.session.scalar(select(func.count()).select_from(WishlistAlert).where(WishlistAlert.status == "new")) or 0),
+            "new_wishlist_alerts": int(
+                self.session.scalar(
+                    select(func.count()).select_from(WishlistAlert).where(WishlistAlert.tenant_id == self.tenant.id, WishlistAlert.status == "new")
+                )
+                or 0
+            ),
             "anonymous_matches": int(
-                self.session.scalar(select(func.count()).select_from(WishlistMatchGroup).where(WishlistMatchGroup.status == "new")) or 0
+                self.session.scalar(
+                    select(func.count())
+                    .select_from(WishlistMatchGroup)
+                    .where(
+                        WishlistMatchGroup.status == "new",
+                        WishlistMatchGroup.participants.any(WishlistMatchParticipant.tenant_id == self.tenant.id),
+                    )
+                )
+                or 0
             ),
             "tour_assemblies_blocked": int(
-                self.session.scalar(select(func.count()).select_from(TourAssemblyProposal).where(TourAssemblyProposal.status == "blocked")) or 0
+                self.session.scalar(
+                    select(func.count()).select_from(TourAssemblyProposal).where(
+                        TourAssemblyProposal.tenant_id == self.tenant.id,
+                        TourAssemblyProposal.status == "blocked",
+                    )
+                )
+                or 0
             ),
-            "drafts_waiting": int(self.session.scalar(select(func.count()).select_from(OutreachDraft).where(OutreachDraft.status.in_(("draft", "reviewed")))) or 0),
+            "drafts_waiting": int(
+                self.session.scalar(
+                    select(func.count()).select_from(OutreachDraft).where(
+                        OutreachDraft.tenant_id == self.tenant.id,
+                        OutreachDraft.status.in_(("draft", "reviewed")),
+                    )
+                )
+                or 0
+            ),
         }
 
     def _source_snapshot(self) -> dict[str, Any]:
@@ -759,7 +855,9 @@ class OperatorCockpit:
         return "clear", "No operator tasks are currently waiting. The desk is clear."
 
     def _recent_changes(self) -> list[dict[str, Any]]:
-        events = self.session.scalars(select(AuditEvent).order_by(desc(AuditEvent.created_at)).limit(8)).all()
+        events = self.session.scalars(
+            select(AuditEvent).where(AuditEvent.tenant_id == self.tenant.id).order_by(desc(AuditEvent.created_at)).limit(8)
+        ).all()
         return [
             {
                 "id": event.id,
@@ -786,6 +884,7 @@ class OperatorCockpit:
 class MorningSweepRunner:
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.tenant = get_session_tenant(session)
 
     def run(self) -> dict[str, Any]:
         started_at = datetime.now(UTC)

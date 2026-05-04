@@ -24,18 +24,22 @@ from app.models.entities import (
 from app.services.enrichment import normalize_name
 from app.services.logistics import CostSharingCalculator
 from app.services.opportunities import OpportunityWorkbench
+from app.services.tenancy import DEFAULT_TENANT_NAME, get_session_tenant
 from app.services.travel_prices import TravelPriceChecker
 
 
-KOF_INSTITUTION_NAME = "KOF Swiss Economic Institute"
+KOF_INSTITUTION_NAME = DEFAULT_TENANT_NAME
 
 
 class RoadshowService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.cost_sharing = CostSharingCalculator()
+        self.tenant = get_session_tenant(session)
 
     def ensure_kof_institution(self) -> Institution:
+        if self.tenant.host_institution:
+            return self.tenant.host_institution
         institution = self.session.scalar(select(Institution).where(Institution.name == KOF_INSTITUTION_NAME))
         if institution:
             return institution
@@ -49,6 +53,8 @@ class RoadshowService:
         )
         self.session.add(institution)
         self.session.flush()
+        self.tenant.host_institution_id = institution.id
+        self.session.add(self.tenant)
         return institution
 
     def ensure_speaker_profile(self, researcher: Researcher) -> SpeakerProfile:
@@ -108,6 +114,7 @@ class RoadshowService:
         return profile
 
     def create_wishlist_entry(self, values: dict[str, Any]) -> WishlistEntry:
+        values = {**values, "tenant_id": self.tenant.id}
         entry = WishlistEntry(**values)
         self.session.add(entry)
         self.session.flush()
@@ -146,6 +153,7 @@ class RoadshowService:
     def refresh_wishlist_alerts(self) -> list[WishlistAlert]:
         entries = self.session.scalars(
             select(WishlistEntry)
+            .where(WishlistEntry.tenant_id == self.tenant.id)
             .where(WishlistEntry.status == "active")
             .options(selectinload(WishlistEntry.researcher), selectinload(WishlistEntry.institution))
         ).all()
@@ -174,6 +182,7 @@ class RoadshowService:
                 if existing:
                     continue
                 alert = WishlistAlert(
+                    tenant_id=self.tenant.id,
                     wishlist_entry_id=entry.id,
                     researcher_id=cluster.researcher_id,
                     trip_cluster_id=cluster.id,
@@ -201,6 +210,9 @@ class RoadshowService:
             raise ValueError("Trip cluster must be linked to a researcher before a tour leg can be proposed.")
 
         kof = self.ensure_kof_institution()
+        host_city = self.tenant.city or kof.city or "Zurich"
+        host_country = self.tenant.country or kof.country or "Switzerland"
+        host_short_name = (self.tenant.branding_json or {}).get("short_name") or self.tenant.name
         profile = self.ensure_speaker_profile(cluster.researcher)
         explicit_fee = profile.fee_floor_chf if profile.fee_floor_chf is not None else fee_per_stop_chf
         fee = explicit_fee or 0
@@ -225,6 +237,7 @@ class RoadshowService:
             ],
         }
         tour_leg = TourLeg(
+            tenant_id=self.tenant.id,
             researcher_id=cluster.researcher_id,
             trip_cluster_id=cluster.id,
             title=f"{cluster.researcher.name} Roadshow leg",
@@ -286,17 +299,17 @@ class RoadshowService:
                         institution_id=kof.id,
                         open_window_id=match.window.id,
                         sequence=0,
-                        city="Zurich",
-                        country="Switzerland",
+                        city=host_city,
+                        country=host_country,
                         starts_at=match.window.starts_at,
                         format="kof_seminar",
                         fee_chf=fee,
                         travel_share_chf=int(cost_split["kof_total_chf"]),
                         status="candidate",
-                        metadata_json={
+            metadata_json={
                             "slot_fit": match.fit_type,
                             "distance_days": match.distance_days,
-                            "cost_responsibility": "kof",
+                            "cost_responsibility": host_short_name,
                             "hospitality_chf": cost_split["kof_hospitality_chf"],
                             "travel_chf": cost_split["kof_travel_chf"],
                             "speaker_fee_source": fee_source,
@@ -349,6 +362,7 @@ class RoadshowService:
     def ensure_relationship_brief(self, researcher_id: str, institution_id: str) -> RelationshipBrief:
         brief = self.session.scalar(
             select(RelationshipBrief).where(
+                RelationshipBrief.tenant_id == self.tenant.id,
                 RelationshipBrief.researcher_id == researcher_id,
                 RelationshipBrief.institution_id == institution_id,
             )
@@ -356,6 +370,7 @@ class RoadshowService:
         if brief:
             return brief
         brief = RelationshipBrief(
+            tenant_id=self.tenant.id,
             researcher_id=researcher_id,
             institution_id=institution_id,
             summary="No prior Roadshow relationship memory yet.",
@@ -383,7 +398,7 @@ class RoadshowService:
         return brief
 
     def create_feedback_signal(self, values: dict[str, Any]) -> FeedbackSignal:
-        signal = FeedbackSignal(**values)
+        signal = FeedbackSignal(**{**values, "tenant_id": self.tenant.id})
         self.session.add(signal)
         self.session.flush()
         brief = self.ensure_relationship_brief(signal.researcher_id, signal.institution_id)
@@ -417,6 +432,7 @@ class RoadshowService:
 
     def record_event(self, event_type: str, entity_type: str, entity_id: str, payload: dict[str, Any]) -> AuditEvent:
         event = AuditEvent(
+            tenant_id=self.tenant.id,
             event_type=event_type,
             actor_type="system",
             entity_type=entity_type,
@@ -431,7 +447,8 @@ class RoadshowService:
         if not researcher:
             return None
         if entry.researcher_id and entry.researcher_id == researcher.id:
-            return f"{researcher.name} is explicitly on the KOF Roadshow wishlist."
+            short_name = (self.tenant.branding_json or {}).get("short_name") or self.tenant.name
+            return f"{researcher.name} is explicitly on the {short_name} Roadshow wishlist."
         if entry.speaker_name and normalize_name(entry.speaker_name) == researcher.normalized_name:
             return f"Speaker-name wishlist match for {entry.speaker_name}."
         if entry.topic:

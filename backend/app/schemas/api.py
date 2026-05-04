@@ -6,6 +6,121 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class RegisterRequest(BaseModel):
+    email: str
+    name: str
+    password: str = Field(min_length=8)
+    institution_name: str
+    city: str | None = None
+    country: str | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TenantRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    slug: str
+    status: str
+    host_institution_id: str | None = None
+    city: str | None = None
+    country: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    timezone: str
+    currency: str
+    anonymous_matching_opt_in: bool
+    branding_json: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+class TenantUpdate(BaseModel):
+    name: str | None = None
+    city: str | None = None
+    country: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    timezone: str | None = None
+    currency: str | None = None
+    anonymous_matching_opt_in: bool | None = None
+    branding_json: dict[str, Any] | None = None
+
+
+class TenantSettingsRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    tenant_id: str
+    research_focuses: list[str]
+    hospitality_policy_json: dict[str, Any]
+    rail_policy_json: dict[str, Any]
+    outreach_defaults_json: dict[str, Any]
+    source_subscriptions_json: list[str]
+    created_at: datetime
+    updated_at: datetime
+
+
+class TenantSettingsUpdate(BaseModel):
+    research_focuses: list[str] | None = None
+    hospitality_policy_json: dict[str, Any] | None = None
+    rail_policy_json: dict[str, Any] | None = None
+    outreach_defaults_json: dict[str, Any] | None = None
+    source_subscriptions_json: list[str] | None = None
+
+
+class TenantMembershipRead(BaseModel):
+    tenant: TenantRead
+    role: str
+    status: str
+
+
+class MeRead(BaseModel):
+    authenticated: bool
+    user_id: str | None = None
+    email: str | None = None
+    name: str | None = None
+    active_tenant: TenantRead
+    memberships: list[TenantMembershipRead] = Field(default_factory=list)
+
+
+class AuthResponse(BaseModel):
+    user_id: str
+    email: str
+    name: str
+    active_tenant: TenantRead
+    expires_at: datetime
+
+
+class TenantSwitchRequest(BaseModel):
+    tenant_id: str
+
+
+class TenantSourceSubscriptionCreate(BaseModel):
+    source_name: str
+    status: str = "active"
+    notes: str | None = None
+
+
+class TenantSourceSubscriptionUpdate(BaseModel):
+    status: str | None = None
+    notes: str | None = None
+
+
+class TenantSourceSubscriptionRead(TenantSourceSubscriptionCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    tenant_id: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class ResearcherFactRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

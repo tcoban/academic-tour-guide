@@ -26,6 +26,7 @@ from app.services.outreach import DraftGenerator, ReviewRequiredError
 from app.services.plausibility import PlausibilityService, speaker_name_quality_flags
 from app.services.roadshow import RoadshowService
 from app.services.scoring import Scorer
+from app.services.tenancy import get_session_tenant
 
 
 @dataclass(slots=True)
@@ -76,9 +77,10 @@ EUROPE_VISIT_TERMS = ("scheduled to be in Europe", "your European visit", "your 
 class BusinessCaseService:
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.tenant = get_session_tenant(session)
 
     def run_shadow_audit(self) -> BusinessCaseRun:
-        run = BusinessCaseRun(mode="shadow", status="running", started_at=datetime.now(UTC), summary_json={})
+        run = BusinessCaseRun(tenant_id=self.tenant.id, mode="shadow", status="running", started_at=datetime.now(UTC), summary_json={})
         self.session.add(run)
         self.session.flush()
 
@@ -101,6 +103,7 @@ class BusinessCaseService:
             run.finished_at = datetime.now(UTC)
             self.session.add(
                 AuditEvent(
+                    tenant_id=self.tenant.id,
                     event_type="business_case.shadow_audit",
                     actor_type="system",
                     entity_type="business_case_run",
@@ -353,8 +356,8 @@ class BusinessCaseService:
             if candidate.status == "pending"
         ]
         required = {
-            "phd_institution": bool(best_fact(researcher, "phd_institution")),
-            "nationality": bool(best_fact(researcher, "nationality")),
+            "phd_institution": bool(best_fact(researcher, "phd_institution", tenant_id=self.tenant.id)),
+            "nationality": bool(best_fact(researcher, "nationality", tenant_id=self.tenant.id)),
         }
         if all(required.values()):
             status = "approved"

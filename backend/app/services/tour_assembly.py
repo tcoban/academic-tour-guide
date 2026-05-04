@@ -27,6 +27,7 @@ from app.services.logistics import CostSharingCalculator
 from app.services.opportunities import OpportunityWorkbench
 from app.services.outreach import DraftGenerator, ReviewRequiredError
 from app.services.roadshow import KOF_INSTITUTION_NAME, RoadshowService
+from app.services.tenancy import get_session_tenant
 
 
 DEFAULT_MATCH_RADIUS_KM = 150
@@ -38,14 +39,16 @@ class TourAssemblyService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.cost_sharing = CostSharingCalculator()
+        self.tenant = get_session_tenant(session)
 
     def refresh_wishlist_matches(self, radius_km: int = DEFAULT_MATCH_RADIUS_KM) -> list[WishlistMatchGroup]:
         entries = self.session.scalars(
             select(WishlistEntry)
-            .where(WishlistEntry.status == "active")
+            .where(WishlistEntry.status == "active", WishlistEntry.tenant.has(anonymous_matching_opt_in=True))
             .options(
                 selectinload(WishlistEntry.institution).selectinload(Institution.roadshow_profile),
                 selectinload(WishlistEntry.researcher).selectinload(Researcher.speaker_profile),
+                selectinload(WishlistEntry.tenant),
             )
         ).all()
         researchers_by_normalized = {
@@ -124,12 +127,13 @@ class TourAssemblyService:
             new_participants = [
                 WishlistMatchParticipant(
                     match_group_id=group.id,
+                    tenant_id=entry.tenant_id,
                     wishlist_entry_id=entry.id,
                     institution_id=entry.institution_id,
                     masked_label=self._masked_label(index, entry.institution),
                     distance_km=distance_km,
                     distance_band=self._distance_band(distance_km),
-                    role="kof_anchor" if self._is_kof(entry.institution) else "co_host",
+                    role="host_anchor" if entry.tenant_id == self.tenant.id else "co_host",
                     status="candidate",
                     budget_status="not_checked",
                     slot_status="not_checked",
@@ -284,6 +288,7 @@ class TourAssemblyService:
         tour_leg: TourLeg | None = None
         if researcher:
             tour_leg = TourLeg(
+                tenant_id=self.tenant.id,
                 researcher_id=researcher.id,
                 trip_cluster_id=cluster.id if cluster else None,
                 title=title,
@@ -341,6 +346,7 @@ class TourAssemblyService:
                 ]
             )
         proposal = TourAssemblyProposal(
+            tenant_id=self.tenant.id,
             match_group_id=match_group.id,
             researcher_id=researcher.id if researcher else None,
             tour_leg_id=tour_leg.id if tour_leg else None,

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.entities import Institution, OpenSeminarWindow, Researcher, ResearcherIdentity, TripCluster
 from app.services.enrichment import best_available_fact
+from app.services.tenancy import get_session_tenant, tenant_scope
 from app.services.travel_planning import TravelPlanner
 
 
@@ -163,14 +164,15 @@ class ScoreResult:
 class Scorer:
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.tenant = get_session_tenant(session)
 
     def score_cluster(self, cluster: TripCluster, researcher: Researcher) -> ScoreResult:
         score = 0
         rationale: list[dict] = []
         uses_unreviewed_evidence = False
-        phd_fact = best_available_fact(researcher, "phd_institution")
-        nationality_fact = best_available_fact(researcher, "nationality")
-        phd_distance = self._distance_to_zurich(phd_fact.value) if phd_fact else None
+        phd_fact = best_available_fact(researcher, "phd_institution", tenant_id=self.tenant.id)
+        nationality_fact = best_available_fact(researcher, "nationality", tenant_id=self.tenant.id)
+        phd_distance = self._distance_to_host(phd_fact.value) if phd_fact else None
         if phd_distance is not None and phd_distance <= 300:
             score += 30
             rationale.append({"label": "Alumni Loop", "points": 30, "detail": self._fact_detail(phd_fact)})
@@ -200,7 +202,8 @@ class Scorer:
         research_fit = self._research_fit(cluster, researcher)
         if research_fit.points > 0:
             score += research_fit.points
-            rationale.append({"label": "KOF Research Fit", "points": research_fit.points, "detail": research_fit.detail})
+            host_label = (self.tenant.branding_json or {}).get("short_name") or self.tenant.name
+            rationale.append({"label": f"{host_label} Research Fit", "points": research_fit.points, "detail": research_fit.detail})
 
         superstar = self._superstar_priority(researcher)
         if superstar.points > 0:
@@ -231,12 +234,17 @@ class Scorer:
         self.session.flush()
         return clusters
 
-    def _distance_to_zurich(self, institution_name: str) -> float | None:
+    def _distance_to_host(self, institution_name: str) -> float | None:
         coordinates = self._coordinates_for_place(institution_name)
-        zurich = DEFAULT_COORDINATES["zurich"]
+        host = self._host_coordinates()
         if not coordinates:
             return None
-        return haversine_km(coordinates[0], coordinates[1], zurich[0], zurich[1])
+        return haversine_km(coordinates[0], coordinates[1], host[0], host[1])
+
+    def _host_coordinates(self) -> tuple[float, float]:
+        if self.tenant.latitude is not None and self.tenant.longitude is not None:
+            return (self.tenant.latitude, self.tenant.longitude)
+        return DEFAULT_COORDINATES["zurich"]
 
     def _coordinates_for_place(self, institution_name: str) -> tuple[float, float] | None:
         normalized = normalize_place(institution_name)
@@ -259,7 +267,9 @@ class Scorer:
     def _slot_fit_signal(self, cluster: TripCluster, researcher: Researcher) -> "_FitSignal | None":
         cluster_start = ensure_timezone(datetime.combine(cluster.start_date, datetime.min.time(), tzinfo=starts_tz(cluster)))
         cluster_end = ensure_timezone(datetime.combine(cluster.end_date, datetime.max.time(), tzinfo=starts_tz(cluster)))
-        windows = self.session.scalars(select(OpenSeminarWindow)).all()
+        windows = self.session.scalars(
+            select(OpenSeminarWindow).where(tenant_scope(OpenSeminarWindow, self.tenant))
+        ).all()
         planner = TravelPlanner()
         best_detail = ""
         best_score = -999
@@ -275,7 +285,8 @@ class Scorer:
                     best_detail = travel_fit.summary
         if best_score == -999:
             return None
-        return _FitSignal(points=15, detail=best_detail or "An open KOF slot is close enough to the trip window.")
+        host_label = (self.tenant.branding_json or {}).get("short_name") or self.tenant.name
+        return _FitSignal(points=15, detail=best_detail or f"An open {host_label} slot is close enough to the trip window.")
 
     def _fact_detail(self, fact) -> str:
         detail = fact.value
@@ -288,14 +299,19 @@ class Scorer:
         if not text:
             return _FitSignal(points=0, detail="")
 
+        focus_terms = list((self.tenant.settings.research_focuses if self.tenant.settings else []) or [])
+        focus_areas: dict[str, tuple[str, ...]] = {
+            "Tenant research priorities": tuple(focus_terms),
+            **KOF_RESEARCH_AREAS,
+        }
         matches_by_area: dict[str, list[str]] = {}
-        for area, terms in KOF_RESEARCH_AREAS.items():
+        for area, terms in focus_areas.items():
             matched_terms = [term for term in terms if _term_matches(text, term)]
             if matched_terms:
                 matches_by_area[area] = matched_terms
 
         if not matches_by_area:
-            return _FitSignal(points=0, detail="No deterministic KOF topic match found.")
+            return _FitSignal(points=0, detail="No deterministic host topic match found.")
 
         unique_term_count = len({term for terms in matches_by_area.values() for term in terms})
         points = min(15, 5 + unique_term_count * 2 + max(0, len(matches_by_area) - 1))

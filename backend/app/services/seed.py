@@ -25,6 +25,7 @@ from app.services.clustering import TripClusterer
 from app.services.enrichment import Biographer, CandidateFact, normalize_name
 from app.services.scoring import Scorer
 from app.services.roadshow import RoadshowService
+from app.services.tenancy import ensure_default_tenant, get_session_tenant, set_session_tenant
 
 
 REFERENCE_INSTITUTIONS = [
@@ -55,6 +56,8 @@ def seed_reference_data(session: Session) -> None:
             )
         )
     session.flush()
+    tenant = ensure_default_tenant(session)
+    set_session_tenant(session, tenant)
 
 
 @dataclass(slots=True)
@@ -257,8 +260,10 @@ def _next_weekday(start_date, weekday: int, min_days: int):
 
 
 def _ensure_demo_template(session: Session) -> int:
+    tenant = get_session_tenant(session)
     template = session.scalar(
         select(SeminarSlotTemplate).where(
+            SeminarSlotTemplate.tenant_id == tenant.id,
             SeminarSlotTemplate.label == "KOF Research Seminar",
             SeminarSlotTemplate.weekday == 1,
         )
@@ -271,6 +276,7 @@ def _ensure_demo_template(session: Session) -> int:
         return 0
     session.add(
         SeminarSlotTemplate(
+            tenant_id=tenant.id,
             label="KOF Research Seminar",
             weekday=1,
             start_time=time(16, 15),
@@ -283,8 +289,11 @@ def _ensure_demo_template(session: Session) -> int:
 
 
 def _ensure_demo_host_event(session: Session, seminar_date, tz: ZoneInfo) -> int:
+    tenant = get_session_tenant(session)
     source_hash = "demo-kof-occupied-slot"
-    event = session.scalar(select(HostCalendarEvent).where(HostCalendarEvent.source_hash == source_hash))
+    event = session.scalar(
+        select(HostCalendarEvent).where(HostCalendarEvent.tenant_id == tenant.id, HostCalendarEvent.source_hash == source_hash)
+    )
     starts_at = datetime.combine(seminar_date + timedelta(days=7), time(16, 15), tzinfo=tz)
     if event:
         event.starts_at = starts_at
@@ -292,6 +301,7 @@ def _ensure_demo_host_event(session: Session, seminar_date, tz: ZoneInfo) -> int
         return 0
     session.add(
         HostCalendarEvent(
+            tenant_id=tenant.id,
             title="KOF Internal Research Workshop",
             location="KOF Zurich",
             starts_at=starts_at,

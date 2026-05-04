@@ -9,6 +9,7 @@ from app.services.enrichment import best_fact, best_fact_candidate
 from app.services.logistics import CostSharingCalculator
 from app.services.opportunities import OpportunityWorkbench
 from app.services.roadshow import KOF_INSTITUTION_NAME
+from app.services.tenancy import get_session_tenant
 
 
 class ReviewRequiredError(RuntimeError):
@@ -32,6 +33,7 @@ class DraftGenerator:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.cost_sharing = CostSharingCalculator()
+        self.tenant = get_session_tenant(session)
 
     def generate(
         self,
@@ -42,8 +44,8 @@ class DraftGenerator:
     ) -> OutreachDraft:
         resolved_template_key = self._resolve_template_key(template_key)
         template = TEMPLATES[resolved_template_key]
-        phd_fact = best_fact(researcher, "phd_institution")
-        nationality_fact = best_fact(researcher, "nationality")
+        phd_fact = best_fact(researcher, "phd_institution", tenant_id=self.tenant.id)
+        nationality_fact = best_fact(researcher, "nationality", tenant_id=self.tenant.id)
         if not phd_fact or phd_fact.confidence < settings.evidence_confidence_threshold:
             pending_phd = best_fact_candidate(researcher, "phd_institution", statuses=("pending",))
             if pending_phd:
@@ -117,6 +119,7 @@ class DraftGenerator:
         )
 
         draft = OutreachDraft(
+            tenant_id=self.tenant.id,
             researcher_id=researcher.id,
             trip_cluster_id=cluster.id,
             subject=subject,
@@ -211,34 +214,42 @@ class DraftGenerator:
             assembly_email = (
                 f"We are also reviewing whether this could fit into a compact multi-stop European tour with {host_count} seminar hosts. "
             )
+        seminar_team = (self.tenant.branding_json or {}).get("seminar_team") or f"{self.tenant.name} seminar team"
+        host_city = self.tenant.city or "the host city"
 
         return (
             f"Dear Professor {last_name},\n\n"
             f"I hope this finds you well. {opening_sentence}\n\n"
-            f"{slot_sentence} {assembly_email}If this timing is feasible, we would be glad to coordinate the local arrangements for your Zurich visit.\n\n"
+            f"{slot_sentence} {assembly_email}If this timing is feasible, we would be glad to coordinate the local arrangements for your {host_city} visit.\n\n"
             "With best regards,\n"
-            "The KOF seminar team\n"
+            f"The {seminar_team}\n"
         )
 
     def _subject_for_cluster(self, cluster: TripCluster, template_key: str, default_subject: str) -> str:
+        host_short_name = (self.tenant.branding_json or {}).get("short_name") or self.tenant.name
+        host_city = self.tenant.city or "the host city"
         if template_key == "multi_host_tour":
             return default_subject
         cities = self._unique_itinerary_cities(cluster)
         if len(cities) == 1:
-            return f"KOF Zurich seminar invitation around your {cities[0]} visit"
+            return f"{host_short_name} {host_city} seminar invitation around your {cities[0]} visit"
         if len(cities) == 2:
-            return f"KOF Zurich seminar invitation around your {cities[0]} and {cities[1]} visits"
+            return f"{host_short_name} {host_city} seminar invitation around your {cities[0]} and {cities[1]} visits"
         if len(cities) > 2:
-            return "KOF Zurich seminar invitation around your itinerary"
+            return f"{host_short_name} {host_city} seminar invitation around your itinerary"
         return default_subject
 
     def _opening_sentence(self, cluster: TripCluster, template_key: str) -> str:
         if template_key == "multi_host_tour":
-            return "We are preparing a compact seminar itinerary and would be very pleased to include a Zurich stop at KOF."
+            host_short_name = (self.tenant.branding_json or {}).get("short_name") or self.tenant.name
+            host_city = self.tenant.city or "our host city"
+            return f"We are preparing a compact seminar itinerary and would be very pleased to include a {host_city} stop at {host_short_name}."
         itinerary_phrase = self._itinerary_phrase(cluster)
+        host_short_name = (self.tenant.branding_json or {}).get("short_name") or self.tenant.name
+        host_city = self.tenant.city or "our host city"
         return (
             f"We saw {itinerary_phrase} and would be very pleased to invite you to give a research seminar "
-            "at KOF in Zurich around that trip."
+            f"at {host_short_name} in {host_city} around that trip."
         )
 
     def _itinerary_phrase(self, cluster: TripCluster) -> str:
@@ -257,12 +268,14 @@ class DraftGenerator:
 
     def _specific_slot_sentence(self, matching_window: OpenSeminarWindow | None) -> str:
         if not matching_window:
-            return "We do not yet have a specific open KOF slot attached, so this draft should not be sent before the calendar is confirmed."
+            host_short_name = (self.tenant.branding_json or {}).get("short_name") or self.tenant.name
+            return f"We do not yet have a specific open {host_short_name} slot attached, so this draft should not be sent before the calendar is confirmed."
         start = matching_window.starts_at
         end = matching_window.ends_at
+        timezone_label = "Zurich" if self.tenant.timezone == "Europe/Zurich" else self.tenant.timezone
         return (
             f"The slot we have in mind is {start.strftime('%A, %d %B %Y, %H:%M')}"
-            f"-{end.strftime('%H:%M')} Zurich time."
+            f"-{end.strftime('%H:%M')} {timezone_label} time."
         )
 
     def _fact_metadata(self, fact) -> dict:
@@ -309,6 +322,7 @@ class DraftGenerator:
         tour_assembly_context: dict | None = None,
         travel_fit: dict | None = None,
     ) -> list[dict]:
+        host_short_name = (self.tenant.branding_json or {}).get("short_name") or self.tenant.name
         brief = [
             {
                 "label": "Template angle",
@@ -324,7 +338,7 @@ class DraftGenerator:
             },
             {
                 "label": "Suggested ask",
-                "detail": "Invite for the specific KOF slot attached to this draft; do not imply the date is still open-ended.",
+                "detail": f"Invite for the specific {host_short_name} slot attached to this draft; do not imply the date is still open-ended.",
             },
             {
                 "label": "Relationship memory",
@@ -377,11 +391,12 @@ class DraftGenerator:
         profile = researcher.speaker_profile or self.session.scalar(
             select(SpeakerProfile).where(SpeakerProfile.researcher_id == researcher.id)
         )
-        kof = self.session.scalar(select(Institution).where(Institution.name == KOF_INSTITUTION_NAME))
+        kof = self.tenant.host_institution or self.session.scalar(select(Institution).where(Institution.name == KOF_INSTITUTION_NAME))
         relationship_summary = "No prior Roadshow relationship memory yet."
         if kof:
             brief = self.session.scalar(
                 select(RelationshipBrief).where(
+                    RelationshipBrief.tenant_id == self.tenant.id,
                     RelationshipBrief.researcher_id == researcher.id,
                     RelationshipBrief.institution_id == kof.id,
                 )
@@ -429,7 +444,7 @@ class DraftGenerator:
                 "detail": "Required DACH/home-visit fact has passed human review.",
             },
             {
-                "label": "Open KOF slot selected",
+                "label": f"Open {(self.tenant.branding_json or {}).get('short_name') or self.tenant.name} slot selected",
                 "status": "ready" if matching_window else "needs_review",
                 "detail": matching_window.starts_at.isoformat() if matching_window else "No matching open slot is currently attached.",
             },

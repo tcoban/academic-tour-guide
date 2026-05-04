@@ -13,6 +13,7 @@ from app.services.availability import AvailabilityBuilder
 from app.services.clustering import TripClusterer
 from app.services.enrichment import Biographer
 from app.services.scoring import Scorer
+from app.services.tenancy import get_session_tenant
 
 
 @dataclass(slots=True)
@@ -26,6 +27,7 @@ class IngestionService:
     def __init__(self, session: Session) -> None:
         self.session = session
         self.biographer = Biographer(session)
+        self.tenant = get_session_tenant(session)
 
     def ingest_sources(self) -> IngestSummary:
         created = 0
@@ -115,7 +117,12 @@ class IngestionService:
 
     def _upsert_host_event(self, extracted) -> str:
         source_hash = sha256(f"{extracted.url}||{extracted.title}||{extracted.starts_at.isoformat()}".encode("utf-8")).hexdigest()
-        event = self.session.scalar(select(HostCalendarEvent).where(HostCalendarEvent.source_hash == source_hash))
+        event = self.session.scalar(
+            select(HostCalendarEvent).where(
+                HostCalendarEvent.tenant_id == self.tenant.id,
+                HostCalendarEvent.source_hash == source_hash,
+            )
+        )
         if event:
             event.title = extracted.title
             event.location = extracted.location
@@ -127,6 +134,7 @@ class IngestionService:
             return "updated"
 
         event = HostCalendarEvent(
+            tenant_id=self.tenant.id,
             title=extracted.title,
             location=extracted.location,
             starts_at=extracted.starts_at,

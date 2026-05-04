@@ -774,20 +774,13 @@ def test_api_access_token_protects_api_when_configured(client, monkeypatch) -> N
     assert allowed_response.status_code == 200
 
 
-def test_production_mode_requires_frontend_password_and_api_token(monkeypatch) -> None:
+def test_production_mode_uses_session_auth_without_legacy_edge_secrets(monkeypatch) -> None:
     monkeypatch.setenv("ROADSHOW_ENV", "production")
     monkeypatch.delenv("ROADSHOW_APP_PASSWORD", raising=False)
     monkeypatch.delenv("ATG_APP_PASSWORD", raising=False)
     monkeypatch.delenv("ROADSHOW_API_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("ATG_API_ACCESS_TOKEN", raising=False)
 
-    errors = settings.production_validation_errors()
-
-    assert "ROADSHOW_APP_PASSWORD is required when ROADSHOW_ENV=production." in errors
-    assert "ROADSHOW_API_ACCESS_TOKEN is required when ROADSHOW_ENV=production." in errors
-
-    monkeypatch.setenv("ROADSHOW_APP_PASSWORD", "frontdoor")
-    monkeypatch.setenv("ROADSHOW_API_ACCESS_TOKEN", "api-token")
     assert settings.production_validation_errors() == []
 
 

@@ -13,6 +13,7 @@ from app.services.enrichment import best_fact, best_fact_candidate
 from app.services.logistics import CostSharingCalculator
 from app.services.autonomy import AutonomyEngine
 from app.services.scoring import ensure_timezone
+from app.services.tenancy import get_session_tenant, tenant_scope
 from app.services.travel_planning import TravelPlanner
 
 
@@ -35,10 +36,15 @@ class OpportunityWorkbench:
         self.session = session
         self.cost_sharing = CostSharingCalculator()
         self.travel_planner = TravelPlanner()
+        self.tenant = get_session_tenant(session)
 
     def build(self, limit: int = 25) -> dict:
-        windows = self.session.scalars(select(OpenSeminarWindow).order_by(OpenSeminarWindow.starts_at)).all()
-        host_events = self.session.scalars(select(HostCalendarEvent).order_by(HostCalendarEvent.starts_at)).all()
+        windows = self.session.scalars(
+            select(OpenSeminarWindow).where(tenant_scope(OpenSeminarWindow, self.tenant)).order_by(OpenSeminarWindow.starts_at)
+        ).all()
+        host_events = self.session.scalars(
+            select(HostCalendarEvent).where(tenant_scope(HostCalendarEvent, self.tenant)).order_by(HostCalendarEvent.starts_at)
+        ).all()
         today = date.today()
         horizon = today + timedelta(days=settings.opportunity_horizon_days)
         clusters = self.session.scalars(
@@ -63,10 +69,14 @@ class OpportunityWorkbench:
         match = self.best_window_for_cluster(cluster, windows)
         blocker_details = self._draft_blockers(researcher)
         existing_drafts = self.session.scalars(
-            select(OutreachDraft).where(OutreachDraft.trip_cluster_id == cluster.id).order_by(desc(OutreachDraft.created_at))
+            select(OutreachDraft)
+            .where(OutreachDraft.tenant_id == self.tenant.id, OutreachDraft.trip_cluster_id == cluster.id)
+            .order_by(desc(OutreachDraft.created_at))
         ).all()
         existing_tour_legs = self.session.scalars(
-            select(TourLeg).where(TourLeg.trip_cluster_id == cluster.id).order_by(desc(TourLeg.created_at))
+            select(TourLeg)
+            .where(TourLeg.tenant_id == self.tenant.id, TourLeg.trip_cluster_id == cluster.id)
+            .order_by(desc(TourLeg.created_at))
         ).all()
         route_review_required = bool(match and match.travel_fit_severity in {"review", "risky"})
         route_review_resolved = bool(route_review_required and existing_tour_legs)
@@ -97,7 +107,9 @@ class OpportunityWorkbench:
         }
 
     def best_window_for_cluster(self, cluster: TripCluster, windows: list[OpenSeminarWindow] | None = None) -> SlotMatch | None:
-        windows = windows if windows is not None else self.session.scalars(select(OpenSeminarWindow)).all()
+        windows = windows if windows is not None else self.session.scalars(
+            select(OpenSeminarWindow).where(tenant_scope(OpenSeminarWindow, self.tenant))
+        ).all()
         if not windows:
             return None
 
@@ -195,7 +207,7 @@ class OpportunityWorkbench:
     def _draft_blockers(self, researcher: Researcher) -> list[dict]:
         blockers: list[dict] = []
         for fact_type, label in [("phd_institution", "PhD institution"), ("nationality", "nationality")]:
-            fact = best_fact(researcher, fact_type)
+            fact = best_fact(researcher, fact_type, tenant_id=self.tenant.id)
             if fact and fact.confidence >= settings.evidence_confidence_threshold:
                 continue
             pending = best_fact_candidate(researcher, fact_type, statuses=("pending",))

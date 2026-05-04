@@ -19,6 +19,7 @@ from app.schemas.api import EnrichRequest
 from app.services.identity_sources import CeprClient, CeprProfile, OrcidClient, OrcidRecord, RepecGenealogyClient, RepecGenealogyEntry
 from app.services.plausibility import document_targets_researcher, is_profileish_url, link_targets_researcher
 from app.services.repec import RepecClient, RepecMatch
+from app.services.tenancy import get_session_tenant
 
 try:
     from pypdf import PdfReader
@@ -67,8 +68,12 @@ def normalize_institution_name(value: str) -> str:
     return re.sub(r"\s+", " ", ascii_value).strip().lower()
 
 
-def best_fact(researcher: Researcher, fact_type: str) -> ResearcherFact | None:
-    matches = [fact for fact in researcher.facts if fact.fact_type == fact_type]
+def best_fact(researcher: Researcher, fact_type: str, tenant_id: str | None = None) -> ResearcherFact | None:
+    matches = [
+        fact
+        for fact in researcher.facts
+        if fact.fact_type == fact_type and (tenant_id is None or fact.tenant_id in {tenant_id, None})
+    ]
     if not matches:
         return None
     return max(matches, key=lambda fact: (fact.verified, fact.confidence, _sortable_datetime(fact.approved_at)))
@@ -116,8 +121,8 @@ class RefreshSummary:
     updated_count: int = 0
 
 
-def best_available_fact(researcher: Researcher, fact_type: str) -> EvidenceResolution | None:
-    approved_fact = best_fact(researcher, fact_type)
+def best_available_fact(researcher: Researcher, fact_type: str, tenant_id: str | None = None) -> EvidenceResolution | None:
+    approved_fact = best_fact(researcher, fact_type, tenant_id=tenant_id)
     if approved_fact:
         return EvidenceResolution(
             fact_type=fact_type,
@@ -162,6 +167,7 @@ class Biographer:
 
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.tenant = get_session_tenant(session)
 
     def get_or_create_researcher(
         self,
@@ -363,6 +369,7 @@ class Biographer:
                 fact
                 for fact in researcher.facts
                 if fact.fact_type == fact_type and fact.value.strip().lower() == cleaned_value.lower()
+                and fact.tenant_id in {self.tenant.id, None}
             ),
             None,
         )
@@ -372,6 +379,7 @@ class Biographer:
         elif fact_type == "birth_month":
             researcher.birth_month = int(cleaned_value)
         if existing:
+            existing.tenant_id = existing.tenant_id or self.tenant.id
             existing.confidence = max(existing.confidence, confidence)
             existing.verified = existing.verified or verified
             existing.source_url = source_url or existing.source_url
@@ -384,6 +392,7 @@ class Biographer:
             return existing
 
         fact = ResearcherFact(
+            tenant_id=self.tenant.id,
             fact_type=fact_type,
             value=cleaned_value,
             confidence=confidence,
@@ -418,7 +427,7 @@ class Biographer:
             ),
             None,
         )
-        approved_match = best_fact(researcher, candidate.fact_type)
+        approved_match = best_fact(researcher, candidate.fact_type, tenant_id=self.tenant.id)
         if approved_match and approved_match.value.strip().lower() == cleaned_value.lower():
             status = "approved"
         institution = self.ensure_institution(cleaned_value) if candidate.fact_type in {"phd_institution", "home_institution"} else None
@@ -480,6 +489,7 @@ class BiographerPipeline:
         public_identity_lookup_enabled: bool | None = None,
     ) -> None:
         self.session = session
+        self.tenant = get_session_tenant(session)
         self.biographer = Biographer(session)
         self.repec_client = repec_client or RepecClient()
         self.orcid_client = orcid_client or OrcidClient()
@@ -615,7 +625,7 @@ class BiographerPipeline:
         return created, updated
 
     def _seed_home_institution_candidate(self, researcher: Researcher) -> None:
-        if not researcher.home_institution or best_fact(researcher, "home_institution"):
+        if not researcher.home_institution or best_fact(researcher, "home_institution", tenant_id=self.tenant.id):
             return
         source_url = None
         if researcher.talk_events:

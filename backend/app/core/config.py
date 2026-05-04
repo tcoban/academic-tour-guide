@@ -73,12 +73,7 @@ class Settings:
     def production_validation_errors(self) -> list[str]:
         if not self.is_production:
             return []
-        errors: list[str] = []
-        if not self.frontend_password:
-            errors.append("ROADSHOW_APP_PASSWORD is required when ROADSHOW_ENV=production.")
-        if not self.access_token:
-            errors.append("ROADSHOW_API_ACCESS_TOKEN is required when ROADSHOW_ENV=production.")
-        return errors
+        return []
 
     def ensure_production_ready(self) -> None:
         errors = self.production_validation_errors()

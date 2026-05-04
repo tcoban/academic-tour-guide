@@ -47,6 +47,114 @@ class Institution(Base):
     )
     wishlist_entries: Mapped[list["WishlistEntry"]] = relationship(back_populates="institution")
     wishlist_match_participants: Mapped[list["WishlistMatchParticipant"]] = relationship(back_populates="institution")
+    hosted_tenants: Mapped[list["Tenant"]] = relationship(back_populates="host_institution")
+
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    name: Mapped[str] = mapped_column(String(255))
+    slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    host_institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), nullable=True, index=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    timezone: Mapped[str] = mapped_column(String(64), default="Europe/Zurich")
+    currency: Mapped[str] = mapped_column(String(8), default="CHF")
+    anonymous_matching_opt_in: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    branding_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    host_institution: Mapped["Institution | None"] = relationship(back_populates="hosted_tenants")
+    memberships: Mapped[list["TenantMembership"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
+    settings: Mapped["TenantSettings | None"] = relationship(
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+    )
+    source_subscriptions: Mapped[list["TenantSourceSubscription"]] = relationship(
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+    )
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    password_hash: Mapped[str] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    memberships: Mapped[list["TenantMembership"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    sessions: Mapped[list["UserSession"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+
+
+class TenantMembership(Base):
+    __tablename__ = "tenant_memberships"
+    __table_args__ = (UniqueConstraint("user_id", "tenant_id", name="uq_tenant_membership_user_tenant"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    role: Mapped[str] = mapped_column(String(32), default="member", index=True)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    user: Mapped["User"] = relationship(back_populates="memberships")
+    tenant: Mapped["Tenant"] = relationship(back_populates="memberships")
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    active_tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    user: Mapped["User"] = relationship(back_populates="sessions")
+    active_tenant: Mapped["Tenant"] = relationship()
+
+
+class TenantSettings(Base):
+    __tablename__ = "tenant_settings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), unique=True, index=True)
+    research_focuses: Mapped[list[str]] = mapped_column(JSON, default=list)
+    hospitality_policy_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    rail_policy_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    outreach_defaults_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    source_subscriptions_json: Mapped[list[str]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    tenant: Mapped["Tenant"] = relationship(back_populates="settings")
+
+
+class TenantSourceSubscription(Base):
+    __tablename__ = "tenant_source_subscriptions"
+    __table_args__ = (UniqueConstraint("tenant_id", "source_name", name="uq_tenant_source_subscription"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    source_name: Mapped[str] = mapped_column(String(120), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    tenant: Mapped["Tenant"] = relationship(back_populates="source_subscriptions")
 
 
 class Researcher(Base):
@@ -133,6 +241,7 @@ class WishlistEntry(Base):
     __tablename__ = "wishlist_entries"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     institution_id: Mapped[str] = mapped_column(ForeignKey("institutions.id"), index=True)
     researcher_id: Mapped[str | None] = mapped_column(ForeignKey("researchers.id"), nullable=True, index=True)
     speaker_name: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
@@ -151,6 +260,7 @@ class WishlistEntry(Base):
         back_populates="wishlist_entry",
         cascade="all, delete-orphan",
     )
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class WishlistAlert(Base):
@@ -158,6 +268,7 @@ class WishlistAlert(Base):
     __table_args__ = (UniqueConstraint("wishlist_entry_id", "trip_cluster_id", name="uq_wishlist_alert_entry_cluster"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     wishlist_entry_id: Mapped[str] = mapped_column(ForeignKey("wishlist_entries.id"), index=True)
     researcher_id: Mapped[str | None] = mapped_column(ForeignKey("researchers.id"), nullable=True, index=True)
     trip_cluster_id: Mapped[str | None] = mapped_column(ForeignKey("trip_clusters.id"), nullable=True, index=True)
@@ -171,6 +282,7 @@ class WishlistAlert(Base):
     wishlist_entry: Mapped["WishlistEntry"] = relationship(back_populates="alerts")
     researcher: Mapped["Researcher | None"] = relationship()
     trip_cluster: Mapped["TripCluster | None"] = relationship()
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class WishlistMatchGroup(Base):
@@ -207,6 +319,7 @@ class WishlistMatchParticipant(Base):
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     match_group_id: Mapped[str] = mapped_column(ForeignKey("wishlist_match_groups.id"), index=True)
     wishlist_entry_id: Mapped[str] = mapped_column(ForeignKey("wishlist_entries.id"), index=True)
     institution_id: Mapped[str] = mapped_column(ForeignKey("institutions.id"), index=True)
@@ -224,12 +337,14 @@ class WishlistMatchParticipant(Base):
     match_group: Mapped["WishlistMatchGroup"] = relationship(back_populates="participants")
     wishlist_entry: Mapped["WishlistEntry"] = relationship(back_populates="match_participants")
     institution: Mapped["Institution"] = relationship(back_populates="wishlist_match_participants")
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class TourAssemblyProposal(Base):
     __tablename__ = "tour_assembly_proposals"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     match_group_id: Mapped[str] = mapped_column(ForeignKey("wishlist_match_groups.id"), index=True)
     researcher_id: Mapped[str | None] = mapped_column(ForeignKey("researchers.id"), nullable=True, index=True)
     tour_leg_id: Mapped[str | None] = mapped_column(ForeignKey("tour_legs.id"), nullable=True, index=True)
@@ -247,6 +362,7 @@ class TourAssemblyProposal(Base):
     researcher: Mapped["Researcher | None"] = relationship(back_populates="tour_assembly_proposals")
     tour_leg: Mapped["TourLeg | None"] = relationship(back_populates="assembly_proposals")
     speaker_draft: Mapped["OutreachDraft | None"] = relationship(back_populates="tour_assembly_proposals")
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class ResearcherIdentity(Base):
@@ -310,6 +426,7 @@ class ResearcherFact(Base):
     __tablename__ = "researcher_facts"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
     institution_id: Mapped[str | None] = mapped_column(ForeignKey("institutions.id"), nullable=True, index=True)
     source_document_id: Mapped[str | None] = mapped_column(ForeignKey("source_documents.id"), nullable=True, index=True)
@@ -331,6 +448,7 @@ class ResearcherFact(Base):
         back_populates="approved_fact",
         foreign_keys=[approved_via_candidate_id],
     )
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class FactCandidate(Base):
@@ -399,10 +517,32 @@ class TripCluster(Base):
     tour_legs: Mapped[list["TourLeg"]] = relationship(back_populates="trip_cluster")
 
 
+class TenantOpportunity(Base):
+    __tablename__ = "tenant_opportunities"
+    __table_args__ = (UniqueConstraint("tenant_id", "trip_cluster_id", name="uq_tenant_opportunity_cluster"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id"), index=True)
+    trip_cluster_id: Mapped[str] = mapped_column(ForeignKey("trip_clusters.id"), index=True)
+    opportunity_score: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    best_open_window_id: Mapped[str | None] = mapped_column(ForeignKey("open_seminar_windows.id"), nullable=True, index=True)
+    draft_ready: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    uses_unreviewed_evidence: Mapped[bool] = mapped_column(Boolean, default=False)
+    fit_rationale: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    draft_blockers: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+    tenant: Mapped["Tenant"] = relationship()
+    trip_cluster: Mapped["TripCluster"] = relationship()
+    best_open_window: Mapped["OpenSeminarWindow | None"] = relationship()
+
+
 class TourLeg(Base):
     __tablename__ = "tour_legs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
     trip_cluster_id: Mapped[str | None] = mapped_column(ForeignKey("trip_clusters.id"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255))
@@ -426,6 +566,7 @@ class TourLeg(Base):
     feedback_signals: Mapped[list["FeedbackSignal"]] = relationship(back_populates="tour_leg")
     assembly_proposals: Mapped[list["TourAssemblyProposal"]] = relationship(back_populates="tour_leg")
     price_checks: Mapped[list["TravelPriceCheck"]] = relationship(back_populates="tour_leg")
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class TourStop(Base):
@@ -455,6 +596,7 @@ class TravelPriceCheck(Base):
     __tablename__ = "travel_price_checks"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     tour_leg_id: Mapped[str | None] = mapped_column(ForeignKey("tour_legs.id"), nullable=True, index=True)
     cache_key: Mapped[str] = mapped_column(String(500), index=True)
     origin_city: Mapped[str] = mapped_column(String(120), index=True)
@@ -477,13 +619,17 @@ class TravelPriceCheck(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     tour_leg: Mapped["TourLeg | None"] = relationship(back_populates="price_checks")
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class RelationshipBrief(Base):
     __tablename__ = "relationship_briefs"
-    __table_args__ = (UniqueConstraint("researcher_id", "institution_id", name="uq_relationship_brief_researcher_institution"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "researcher_id", "institution_id", name="uq_relationship_brief_tenant_researcher_institution"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
     institution_id: Mapped[str] = mapped_column(ForeignKey("institutions.id"), index=True)
     summary: Mapped[str] = mapped_column(Text, default="")
@@ -497,12 +643,14 @@ class RelationshipBrief(Base):
 
     researcher: Mapped["Researcher"] = relationship(back_populates="relationship_briefs")
     institution: Mapped["Institution"] = relationship()
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class FeedbackSignal(Base):
     __tablename__ = "feedback_signals"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
     institution_id: Mapped[str] = mapped_column(ForeignKey("institutions.id"), index=True)
     tour_leg_id: Mapped[str | None] = mapped_column(ForeignKey("tour_legs.id"), nullable=True, index=True)
@@ -517,12 +665,14 @@ class FeedbackSignal(Base):
     researcher: Mapped["Researcher"] = relationship(back_populates="feedback_signals")
     institution: Mapped["Institution"] = relationship()
     tour_leg: Mapped["TourLeg | None"] = relationship(back_populates="feedback_signals")
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     event_type: Mapped[str] = mapped_column(String(120), index=True)
     actor_type: Mapped[str] = mapped_column(String(64), default="system", index=True)
     actor_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -530,12 +680,14 @@ class AuditEvent(Base):
     entity_id: Mapped[str] = mapped_column(String(120), index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class BusinessCaseRun(Base):
     __tablename__ = "business_case_runs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     mode: Mapped[str] = mapped_column(String(32), default="shadow", index=True)
     status: Mapped[str] = mapped_column(String(32), default="running", index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
@@ -549,6 +701,7 @@ class BusinessCaseRun(Base):
         cascade="all, delete-orphan",
         order_by="BusinessCaseResult.case_key",
     )
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class BusinessCaseResult(Base):
@@ -587,42 +740,49 @@ class HostCalendarEvent(Base):
     __tablename__ = "host_calendar_events"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(500))
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     url: Mapped[str] = mapped_column(String(500))
-    source_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    source_hash: Mapped[str] = mapped_column(String(64), index=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class SeminarSlotTemplate(Base):
     __tablename__ = "seminar_slot_templates"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     label: Mapped[str] = mapped_column(String(255))
     weekday: Mapped[int] = mapped_column(Integer, index=True)
     start_time: Mapped[time] = mapped_column(Time)
     end_time: Mapped[time] = mapped_column(Time)
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Zurich")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class SeminarSlotOverride(Base):
     __tablename__ = "seminar_slot_overrides"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     end_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(32), index=True)
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class OpenSeminarWindow(Base):
     __tablename__ = "open_seminar_windows"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     derived_from_template_id: Mapped[str | None] = mapped_column(
@@ -632,12 +792,14 @@ class OpenSeminarWindow(Base):
     source: Mapped[str] = mapped_column(String(64), default="derived")
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    tenant: Mapped["Tenant | None"] = relationship()
 
 
 class OutreachDraft(Base):
     __tablename__ = "outreach_drafts"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_uuid)
+    tenant_id: Mapped[str | None] = mapped_column(ForeignKey("tenants.id"), nullable=True, index=True)
     researcher_id: Mapped[str] = mapped_column(ForeignKey("researchers.id"), index=True)
     trip_cluster_id: Mapped[str] = mapped_column(ForeignKey("trip_clusters.id"), index=True)
     subject: Mapped[str] = mapped_column(String(255))
@@ -650,3 +812,4 @@ class OutreachDraft(Base):
     researcher: Mapped["Researcher"] = relationship(back_populates="outreach_drafts")
     trip_cluster: Mapped["TripCluster"] = relationship(back_populates="drafts")
     tour_assembly_proposals: Mapped[list["TourAssemblyProposal"]] = relationship(back_populates="speaker_draft")
+    tenant: Mapped["Tenant | None"] = relationship()

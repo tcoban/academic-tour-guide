@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.models.entities import Researcher, TourLeg, TripCluster
 from app.services.enrichment import best_fact, best_fact_candidate
+from app.services.tenancy import get_session_tenant
 
 
 @dataclass(slots=True)
@@ -61,6 +62,7 @@ class AutonomyAssessment:
 class AutonomyEngine:
     def __init__(self, session: Session) -> None:
         self.session = session
+        self.tenant = get_session_tenant(session)
 
     def assess_opportunity(
         self,
@@ -147,7 +149,7 @@ class AutonomyEngine:
         pending = []
         missing = []
         for fact_type in ("phd_institution", "nationality"):
-            fact = best_fact(researcher, fact_type)
+            fact = best_fact(researcher, fact_type, tenant_id=self.tenant.id)
             candidate = best_fact_candidate(researcher, fact_type, statuses=("pending",))
             if fact and fact.confidence >= settings.evidence_confidence_threshold:
                 approved.append(f"{fact_type}: {fact.value}")

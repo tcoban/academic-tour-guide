@@ -9,6 +9,63 @@ export type ResearcherFact = {
   approval_origin: string;
 };
 
+export type Tenant = {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  host_institution_id?: string | null;
+  city?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  timezone: string;
+  currency: string;
+  anonymous_matching_opt_in: boolean;
+  branding_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TenantSettings = {
+  id: string;
+  tenant_id: string;
+  research_focuses: string[];
+  hospitality_policy_json: Record<string, unknown>;
+  rail_policy_json: Record<string, unknown>;
+  outreach_defaults_json: Record<string, unknown>;
+  source_subscriptions_json: string[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type Me = {
+  authenticated: boolean;
+  user_id?: string | null;
+  email?: string | null;
+  name?: string | null;
+  active_tenant: Tenant;
+  memberships: Array<{ tenant: Tenant; role: string; status: string }>;
+};
+
+export type AuthResponse = {
+  user_id: string;
+  email: string;
+  name: string;
+  active_tenant: Tenant;
+  expires_at: string;
+};
+
+export type TenantSourceSubscription = {
+  id: string;
+  tenant_id: string;
+  source_name: string;
+  status: string;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type FactCandidate = {
   id: string;
   researcher_id: string;
@@ -787,9 +844,10 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     response = await fetch(`${API_BASE}${path}`, {
       ...init,
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        ...(API_ACCESS_TOKEN ? { "x-atg-api-key": API_ACCESS_TOKEN } : {}),
+        ...(API_ACCESS_TOKEN ? { "x-roadshow-api-key": API_ACCESS_TOKEN, "x-atg-api-key": API_ACCESS_TOKEN } : {}),
         ...(init?.headers ?? {}),
       },
       cache: "no-store",
@@ -820,6 +878,67 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function getDailyCatch(): Promise<DailyCatch> {
   return getJson<DailyCatch>("/dashboard/daily-catch");
+}
+
+export function getMe(): Promise<Me> {
+  return getJson<Me>("/me");
+}
+
+export async function registerRoadshowAccount(payload: {
+  email: string;
+  name: string;
+  password: string;
+  institution_name: string;
+  city?: string | null;
+  country?: string | null;
+}): Promise<AuthResponse> {
+  return getJson<AuthResponse>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function loginRoadshowAccount(payload: { email: string; password: string }): Promise<AuthResponse> {
+  return getJson<AuthResponse>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function logoutRoadshowAccount(): Promise<{ status: string }> {
+  return getJson<{ status: string }>("/auth/logout", { method: "POST" });
+}
+
+export function getCurrentTenant(): Promise<Tenant> {
+  return getJson<Tenant>("/tenants/current");
+}
+
+export async function updateCurrentTenant(payload: Partial<Pick<
+  Tenant,
+  "name" | "city" | "country" | "latitude" | "longitude" | "timezone" | "currency" | "anonymous_matching_opt_in" | "branding_json"
+>>): Promise<Tenant> {
+  return getJson<Tenant>("/tenants/current", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getCurrentTenantSettings(): Promise<TenantSettings> {
+  return getJson<TenantSettings>("/tenants/current/settings");
+}
+
+export async function updateCurrentTenantSettings(payload: Partial<Pick<
+  TenantSettings,
+  "research_focuses" | "hospitality_policy_json" | "rail_policy_json" | "outreach_defaults_json" | "source_subscriptions_json"
+>>): Promise<TenantSettings> {
+  return getJson<TenantSettings>("/tenants/current/settings", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getTenantSourceSubscriptions(): Promise<TenantSourceSubscription[]> {
+  return getJson<TenantSourceSubscription[]>("/tenant/source-subscriptions");
 }
 
 export function getCalendarOverlay(options: { rebuild?: boolean } = {}): Promise<CalendarOverlay> {
