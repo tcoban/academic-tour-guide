@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { createDraft } from "@/lib/api";
+import { PurposeButton } from "@/components/purpose-button";
 
 type DraftButtonProps = {
   researcherId: string;
@@ -13,7 +14,7 @@ type DraftButtonProps = {
   className?: string;
 };
 
-export function DraftButton({ researcherId, clusterId, templateKey = "concierge", label = "One-Click Draft", className }: DraftButtonProps) {
+export function DraftButton({ researcherId, clusterId, templateKey = "kof_invitation", label = "Create KOF invitation draft", className }: DraftButtonProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,11 +33,14 @@ export function DraftButton({ researcherId, clusterId, templateKey = "concierge"
   }
 
   return (
-    <div className="stack">
-      <button className={className} type="button" onClick={handleClick} disabled={pending}>
-        {pending ? "Drafting..." : label}
-      </button>
-      {error ? <span className="fine-print">{error}</span> : null}
-    </div>
+    <PurposeButton
+      className={className}
+      errorText={error}
+      helperText="Creates one review-gated KOF invitation using approved facts and the selected KOF slot."
+      label={label}
+      onClick={handleClick}
+      pending={pending}
+      runningLabel="Creating KOF invitation..."
+    />
   );
 }

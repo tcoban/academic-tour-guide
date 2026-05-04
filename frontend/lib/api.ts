@@ -128,6 +128,12 @@ export type MatchedOpenWindow = OpenSeminarWindow & {
   fit_type: string;
   distance_days: number;
   within_scoring_window: boolean;
+  travel_fit_score: number;
+  travel_fit_label?: string | null;
+  travel_fit_summary?: string | null;
+  travel_fit_severity: string;
+  planning_warnings: string[];
+  travel_fit: Record<string, unknown>;
 };
 
 export type CostShareEstimate = {
@@ -143,6 +149,36 @@ export type CostShareEstimate = {
   slot_starts_at?: string | null;
 };
 
+export type OpportunityAutonomyAction = {
+  label: string;
+  consequence: string;
+  href?: string | null;
+  action_key?: string | null;
+  disabled_reason?: string | null;
+};
+
+export type OpportunityAutonomySignal = {
+  label: string;
+  status: string;
+  confidence: number;
+  detail: string;
+  evidence: string[];
+};
+
+export type OpportunityAutonomyAssessment = {
+  level: string;
+  score: number;
+  summary: string;
+  can_prepare_draft: boolean;
+  can_build_tour_leg: boolean;
+  can_search_evidence: boolean;
+  can_refresh_prices: boolean;
+  requires_human_approval: boolean;
+  signals: OpportunityAutonomySignal[];
+  next_action: OpportunityAutonomyAction;
+  moonshot_actions: OpportunityAutonomyAction[];
+};
+
 export type OpportunityCard = {
   cluster: TripCluster;
   researcher: Researcher;
@@ -151,9 +187,31 @@ export type OpportunityCard = {
   itinerary_cities: string[];
   draft_ready: boolean;
   draft_blockers: string[];
+  draft_blocker_details: Array<{
+    code: string;
+    fact_type?: string | null;
+    label: string;
+    message: string;
+    action_label: string;
+    action_href: string;
+    pending_candidate_id?: string | null;
+  }>;
   draft_count: number;
   latest_draft_id?: string | null;
   latest_draft_template?: string | null;
+  tour_leg_count: number;
+  latest_tour_leg_id?: string | null;
+  route_review_required: boolean;
+  route_review_resolved: boolean;
+  route_review_action?: {
+    label: string;
+    href?: string | null;
+    action_key: string;
+    trip_cluster_id?: string | null;
+    explanation: string;
+    disabled_reason?: string | null;
+  } | null;
+  automation_assessment?: OpportunityAutonomyAssessment | null;
 };
 
 export type OpportunityWorkbench = {
@@ -200,6 +258,13 @@ export type SourceHealth = {
   event_count: number;
   samples: string[];
   error?: string | null;
+  official_url?: string | null;
+  parser_strategy?: string | null;
+  needs_adapter: boolean;
+  action_label?: string | null;
+  action_href?: string | null;
+  consequence?: string | null;
+  disabled_reason?: string | null;
   checked_at: string;
 };
 
@@ -213,6 +278,7 @@ export type SourceReliability = {
   source_type: string;
   latest_status: string;
   latest_event_count: number;
+  last_event_count: number;
   previous_event_count?: number | null;
   checks_recorded: number;
   success_rate: number;
@@ -220,7 +286,16 @@ export type SourceReliability = {
   trend: string;
   needs_attention: boolean;
   attention_reason?: string | null;
-  latest_checked_at: string;
+  latest_checked_at?: string | null;
+  last_success_at?: string | null;
+  latest_error?: string | null;
+  official_url?: string | null;
+  parser_strategy?: string | null;
+  needs_adapter: boolean;
+  action_label?: string | null;
+  action_href?: string | null;
+  consequence?: string | null;
+  disabled_reason?: string | null;
 };
 
 export type RunbookStep = {
@@ -241,6 +316,98 @@ export type OperatorRunbook = {
   host_event_count: number;
   draft_counts_by_status: Record<string, number>;
   recommended_steps: RunbookStep[];
+};
+
+export type OperatorAction = {
+  label: string;
+  href?: string | null;
+  method: string;
+  action_key?: string | null;
+  disabled_reason?: string | null;
+};
+
+export type OperatorPrimaryFlow = OperatorAction & {
+  consequence: string;
+};
+
+export type OperatorSetupBlocker = {
+  id: string;
+  title: string;
+  explanation: string;
+  action: OperatorPrimaryFlow;
+  count: number;
+};
+
+export type OperatorTask = {
+  id: string;
+  group: string;
+  severity: string;
+  status: string;
+  title: string;
+  explanation: string;
+  primary_action: OperatorAction;
+  secondary_actions: OperatorAction[];
+  entity_type?: string | null;
+  entity_id?: string | null;
+  count: number;
+  disabled_reason?: string | null;
+  last_updated_at?: string | null;
+  metadata_json: Record<string, unknown>;
+};
+
+export type OperatorTaskGroup = {
+  key: string;
+  title: string;
+  purpose: string;
+  tasks: OperatorTask[];
+};
+
+export type OperatorCockpit = {
+  generated_at: string;
+  posture: string;
+  posture_detail: string;
+  data_state: "empty" | "demo" | "real" | "stale";
+  setup_blockers: OperatorSetupBlocker[];
+  primary_flow: OperatorPrimaryFlow;
+  summary_metrics: Record<string, number>;
+  next_best_action?: OperatorTask | null;
+  groups: OperatorTaskGroup[];
+  recent_changes: AuditEvent[];
+  source_snapshot: {
+    last_sync_at?: string | null;
+    sources_tracked: number;
+    sources_checked: number;
+    sources_with_events: number;
+    sources_needing_attention: number;
+    needs_adapter: number;
+    total_events_last_check: number;
+    latest_issues: Array<{
+      source_name: string;
+      status: string;
+      reason?: string | null;
+      official_url?: string | null;
+    }>;
+  };
+};
+
+export type MorningSweepStep = {
+  key: string;
+  title: string;
+  status: string;
+  detail: string;
+  processed_count: number;
+  created_count: number;
+  updated_count: number;
+  source_counts: Record<string, number>;
+  error?: string | null;
+};
+
+export type MorningSweepResponse = {
+  started_at: string;
+  finished_at: string;
+  status: string;
+  steps: MorningSweepStep[];
+  summary_metrics: Record<string, number>;
 };
 
 export type SeminarSlotTemplate = {
@@ -400,6 +567,38 @@ export type WishlistAlert = {
   institution_name?: string | null;
 };
 
+export type WishlistMatchParticipant = {
+  id: string;
+  match_group_id: string;
+  masked_label: string;
+  distance_km?: number | null;
+  distance_band: string;
+  role: string;
+  status: string;
+  budget_status: string;
+  slot_status: string;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WishlistMatchGroup = {
+  id: string;
+  researcher_id?: string | null;
+  normalized_speaker_name: string;
+  display_speaker_name: string;
+  status: string;
+  radius_km: number;
+  score: number;
+  anonymity_mode: string;
+  rationale: Array<Record<string, unknown>>;
+  metadata_json: Record<string, unknown>;
+  participant_count: number;
+  participants: WishlistMatchParticipant[];
+  created_at: string;
+  updated_at: string;
+};
+
 export type TourStop = {
   id: string;
   tour_leg_id: string;
@@ -432,6 +631,52 @@ export type TourLeg = {
   created_at: string;
   updated_at: string;
   stops: TourStop[];
+};
+
+export type TravelPriceCheck = {
+  id: string;
+  tour_leg_id?: string | null;
+  cache_key: string;
+  origin_city: string;
+  destination_city: string;
+  departure_at?: string | null;
+  travel_class: string;
+  fare_policy: string;
+  provider: string;
+  status: string;
+  amount?: number | null;
+  currency: string;
+  amount_chf: number;
+  confidence: number;
+  source_url?: string | null;
+  action_href?: string | null;
+  raw_summary: Record<string, unknown>;
+  error?: string | null;
+  fetched_at: string;
+  expires_at: string;
+  created_at: string;
+};
+
+export type TourAssemblyProposal = {
+  id: string;
+  match_group_id: string;
+  researcher_id?: string | null;
+  tour_leg_id?: string | null;
+  speaker_draft_id?: string | null;
+  title: string;
+  status: string;
+  term_sheet_json: Record<string, unknown>;
+  budget_summary_json: Record<string, unknown>;
+  blockers: Array<Record<string, unknown>>;
+  masked_summary_json: {
+    speaker?: string;
+    participant_count?: number;
+    participants?: Array<Record<string, unknown>>;
+    ordered_stops?: Array<Record<string, unknown>>;
+  } & Record<string, unknown>;
+  match_group?: WishlistMatchGroup | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type RelationshipBrief = {
@@ -473,19 +718,88 @@ export type AuditEvent = {
   created_at: string;
 };
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
+export type BusinessCaseResult = {
+  id: string;
+  run_id: string;
+  researcher_id?: string | null;
+  case_key: string;
+  display_name: string;
+  target_name: string;
+  verdict: string;
+  score: number;
+  data_found: boolean;
+  kof_fit_status: string;
+  route_status: string;
+  evidence_status: string;
+  draft_status: string;
+  price_status: string;
+  evidence_summary_json: Record<string, unknown>;
+  fit_summary_json: Record<string, unknown>;
+  route_summary_json: Record<string, unknown>;
+  price_summary_json: Record<string, unknown>;
+  draft_gate_json: Record<string, unknown>;
+  blockers: Array<{
+    code: string;
+    title: string;
+    explanation: string;
+    action_label: string;
+    action_href: string;
+    consequence: string;
+  }>;
+  source_links_json: Array<{
+    type: string;
+    label: string;
+    url: string;
+  }>;
+  metadata_json: Record<string, unknown>;
+  created_at: string;
+};
+
+export type BusinessCaseRun = {
+  id: string;
+  mode: string;
+  status: string;
+  started_at: string;
+  finished_at?: string | null;
+  summary_json: Record<string, unknown>;
+  error?: string | null;
+  created_at: string;
+  results: BusinessCaseResult[];
+};
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000/api";
 const API_ACCESS_TOKEN = process.env.NEXT_PUBLIC_ROADSHOW_API_ACCESS_TOKEN ?? process.env.NEXT_PUBLIC_API_ACCESS_TOKEN;
 
+export class RoadshowApiError extends Error {
+  status?: number;
+  unavailable: boolean;
+
+  constructor(message: string, options: { status?: number; unavailable?: boolean } = {}) {
+    super(message);
+    this.name = "RoadshowApiError";
+    this.status = options.status;
+    this.unavailable = options.unavailable ?? false;
+  }
+}
+
 async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(API_ACCESS_TOKEN ? { "x-atg-api-key": API_ACCESS_TOKEN } : {}),
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(API_ACCESS_TOKEN ? { "x-atg-api-key": API_ACCESS_TOKEN } : {}),
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+    });
+  } catch (cause) {
+    throw new RoadshowApiError(
+      "Roadshow API is unavailable. Contact the operator or check service status.",
+      { unavailable: true },
+    );
+  }
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
     try {
@@ -496,7 +810,7 @@ async function getJson<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // Fall back to the generic status text when the response body is not JSON.
     }
-    throw new Error(detail);
+    throw new RoadshowApiError(detail, { status: response.status });
   }
   if (response.status === 204) {
     return undefined as T;
@@ -508,8 +822,9 @@ export function getDailyCatch(): Promise<DailyCatch> {
   return getJson<DailyCatch>("/dashboard/daily-catch");
 }
 
-export function getCalendarOverlay(): Promise<CalendarOverlay> {
-  return getJson<CalendarOverlay>("/calendar/overlay?rebuild=true");
+export function getCalendarOverlay(options: { rebuild?: boolean } = {}): Promise<CalendarOverlay> {
+  const params = new URLSearchParams({ rebuild: String(options.rebuild ?? false) });
+  return getJson<CalendarOverlay>(`/calendar/overlay?${params.toString()}`);
 }
 
 export function getSourceHealth(): Promise<SourceHealth[]> {
@@ -526,6 +841,10 @@ export function getSourceReliability(): Promise<SourceReliability[]> {
 
 export function getOperatorRunbook(): Promise<OperatorRunbook> {
   return getJson<OperatorRunbook>("/operator/runbook");
+}
+
+export function getOperatorCockpit(): Promise<OperatorCockpit> {
+  return getJson<OperatorCockpit>("/operator/cockpit");
 }
 
 export function getOpportunityWorkbench(): Promise<OpportunityWorkbench> {
@@ -577,6 +896,30 @@ export function getWishlistAlerts(): Promise<WishlistAlert[]> {
   return getJson<WishlistAlert[]>("/wishlist-alerts");
 }
 
+export function getWishlistMatches(): Promise<WishlistMatchGroup[]> {
+  return getJson<WishlistMatchGroup[]>("/wishlist-matches");
+}
+
+export async function refreshWishlistMatches(): Promise<WishlistMatchGroup[]> {
+  return getJson<WishlistMatchGroup[]>("/wishlist-matches/refresh", {
+    method: "POST",
+  });
+}
+
+export async function updateWishlistMatchStatus(matchId: string, status: string, note?: string): Promise<WishlistMatchGroup> {
+  return getJson<WishlistMatchGroup>(`/wishlist-matches/${matchId}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ status, note: note ?? null }),
+  });
+}
+
+export async function updateWishlistAlertStatus(alertId: string, status: string, note?: string): Promise<WishlistAlert> {
+  return getJson<WishlistAlert>(`/wishlist-alerts/${alertId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status, note: note ?? null }),
+  });
+}
+
 export async function createWishlistEntry(payload: {
   institution_id: string;
   researcher_id?: string | null;
@@ -623,10 +966,65 @@ export function getTourLeg(id: string): Promise<TourLeg> {
   return getJson<TourLeg>(`/tour-legs/${id}`);
 }
 
-export async function proposeTourLeg(tripClusterId: string, feePerStopChf = 3500): Promise<TourLeg> {
+export function getTravelPriceChecks(tourLegId?: string): Promise<TravelPriceCheck[]> {
+  const params = new URLSearchParams();
+  if (tourLegId) {
+    params.set("tour_leg_id", tourLegId);
+  }
+  const query = params.toString();
+  return getJson<TravelPriceCheck[]>(query ? `/travel-price-checks?${query}` : "/travel-price-checks");
+}
+
+export async function createTravelPriceCheck(payload: {
+  origin_city: string;
+  destination_city: string;
+  departure_at?: string | null;
+  tour_leg_id?: string | null;
+  force_refresh?: boolean;
+  travel_class?: string;
+  fare_policy?: string;
+}): Promise<TravelPriceCheck> {
+  return getJson<TravelPriceCheck>("/travel-price-checks", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function refreshTourLegPrices(tourLegId: string): Promise<TourLeg> {
+  return getJson<TourLeg>(`/tour-legs/${tourLegId}/refresh-prices`, {
+    method: "POST",
+  });
+}
+
+export async function proposeTourLeg(tripClusterId: string, feePerStopChf?: number | null): Promise<TourLeg> {
+  const payload: Record<string, unknown> = { trip_cluster_id: tripClusterId };
+  if (feePerStopChf !== undefined && feePerStopChf !== null) {
+    payload.fee_per_stop_chf = feePerStopChf;
+  }
   return getJson<TourLeg>("/tour-legs/propose", {
     method: "POST",
-    body: JSON.stringify({ trip_cluster_id: tripClusterId, fee_per_stop_chf: feePerStopChf }),
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getTourAssemblies(): Promise<TourAssemblyProposal[]> {
+  return getJson<TourAssemblyProposal[]>("/tour-assemblies");
+}
+
+export function getTourAssembly(id: string): Promise<TourAssemblyProposal> {
+  return getJson<TourAssemblyProposal>(`/tour-assemblies/${id}`);
+}
+
+export async function proposeTourAssembly(matchGroupId: string): Promise<TourAssemblyProposal> {
+  return getJson<TourAssemblyProposal>("/tour-assemblies/propose", {
+    method: "POST",
+    body: JSON.stringify({ match_group_id: matchGroupId }),
+  });
+}
+
+export async function createTourAssemblySpeakerDraft(proposalId: string): Promise<OutreachDraft> {
+  return getJson<OutreachDraft>(`/tour-assemblies/${proposalId}/speaker-draft`, {
+    method: "POST",
   });
 }
 
@@ -664,6 +1062,20 @@ export async function createFeedbackSignal(payload: {
 
 export function getAuditEvents(): Promise<AuditEvent[]> {
   return getJson<AuditEvent[]>("/audit-events");
+}
+
+export function getBusinessCaseRuns(): Promise<BusinessCaseRun[]> {
+  return getJson<BusinessCaseRun[]>("/business-cases/runs");
+}
+
+export function getBusinessCaseRun(id: string): Promise<BusinessCaseRun> {
+  return getJson<BusinessCaseRun>(`/business-cases/runs/${id}`);
+}
+
+export async function runBusinessCaseAudit(): Promise<BusinessCaseRun> {
+  return getJson<BusinessCaseRun>("/business-cases/run", {
+    method: "POST",
+  });
 }
 
 export function getResearcherDocuments(id: string): Promise<SourceDocument[]> {
@@ -711,7 +1123,7 @@ export function getDrafts(status?: string): Promise<OutreachDraftListItem[]> {
   return getJson<OutreachDraftListItem[]>(status ? `/outreach-drafts?status=${encodeURIComponent(status)}` : "/outreach-drafts");
 }
 
-export async function createDraft(researcherId: string, tripClusterId: string, templateKey = "concierge"): Promise<OutreachDraft> {
+export async function createDraft(researcherId: string, tripClusterId: string, templateKey = "kof_invitation"): Promise<OutreachDraft> {
   return getJson<OutreachDraft>("/outreach-drafts", {
     method: "POST",
     body: JSON.stringify({ researcher_id: researcherId, trip_cluster_id: tripClusterId, template_key: templateKey }),
@@ -752,6 +1164,18 @@ export async function runSourceAudit(): Promise<SourceHealthRecord[]> {
   });
 }
 
+export async function runMorningSweep(): Promise<MorningSweepResponse> {
+  return getJson<MorningSweepResponse>("/operator/morning-sweep", {
+    method: "POST",
+  });
+}
+
+export async function runRealSync(): Promise<MorningSweepResponse> {
+  return getJson<MorningSweepResponse>("/operator/real-sync", {
+    method: "POST",
+  });
+}
+
 export async function runRepecSync(researcherId?: string): Promise<JobRunResponse> {
   return getJson<JobRunResponse>("/jobs/repec-sync", {
     method: "POST",
@@ -763,6 +1187,15 @@ export async function runBiographerRefresh(researcherId?: string): Promise<JobRu
   return getJson<JobRunResponse>("/jobs/biographer-refresh", {
     method: "POST",
     body: JSON.stringify({ researcher_id: researcherId ?? null }),
+  });
+}
+
+export async function runEvidenceSearch(researcherId?: string): Promise<JobRunResponse> {
+  const path = researcherId ? `/researchers/${researcherId}/evidence-search` : "/jobs/evidence-search";
+  const body = researcherId ? undefined : JSON.stringify({ researcher_id: null });
+  return getJson<JobRunResponse>(path, {
+    method: "POST",
+    body,
   });
 }
 

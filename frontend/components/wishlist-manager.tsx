@@ -105,10 +105,10 @@ export function WishlistManager({ entries, researchers, kofInstitutionId }: Wish
               <div className="template-actions">
                 <span className="status-pill">{entry.status}</span>
                 <button className="ghost-button" disabled={pending} onClick={() => startEditing(entry)} type="button">
-                  Edit
+                  Edit wishlist watch
                 </button>
                 <button className="ghost-button" disabled={pending} onClick={() => handleDelete(entry.id)} type="button">
-                  Delete
+                  Delete wishlist watch
                 </button>
               </div>
             </div>
@@ -158,7 +158,7 @@ export function WishlistManager({ entries, researchers, kofInstitutionId }: Wish
         </label>
         <div className="template-actions">
           <button disabled={pending} type="submit">
-            {pending ? "Saving..." : editingId ? "Update wishlist" : "Add wishlist entry"}
+            {pending ? "Saving watch..." : editingId ? "Update wishlist watch" : "Add speaker/topic watch"}
           </button>
           {editingId ? (
             <button className="ghost-button" onClick={resetForm} type="button">

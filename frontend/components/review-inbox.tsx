@@ -70,7 +70,7 @@ export function ReviewInbox({ candidates }: ReviewInboxProps) {
                 {candidate.status}
               </span>
               <Link className="ghost-button" href={`/researchers/${candidate.researcher_id}`}>
-                Open dossier
+                Inspect speaker evidence
               </Link>
             </div>
           </div>
@@ -97,7 +97,7 @@ export function ReviewInbox({ candidates }: ReviewInboxProps) {
                   {busyId === candidate.id ? "Approving..." : "Approve value"}
                 </button>
                 <button type="button" className="ghost-button" onClick={() => handleReject(candidate.id)} disabled={busyId === candidate.id}>
-                  Reject
+                  Reject evidence candidate
                 </button>
               </div>
             </>

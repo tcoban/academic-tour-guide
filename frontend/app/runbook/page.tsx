@@ -4,6 +4,8 @@ import { Panel } from "@/components/panel";
 import { SourceJobRunner } from "@/components/source-job-runner";
 import { getOperatorRunbook, type RunbookStep } from "@/lib/api";
 
+export const dynamic = "force-dynamic";
+
 function statusTone(status: string): string {
   if (status === "blocked" || status === "needs_attention") {
     return "blocked";
@@ -70,7 +72,7 @@ export default async function RunbookPage() {
           <span className="eyebrow">Daily Operator Runbook</span>
           <h1 className="hero-title">Start here, then work the queue.</h1>
           <p className="hero-copy">
-            This page condenses source health, evidence review, open seminar supply, opportunity readiness, and draft lifecycle follow-up into
+            This page condenses data-source reliability, evidence review, open seminar supply, opportunity readiness, and draft lifecycle follow-up into
             one operating sequence for KOF admins.
           </p>
           <div className="kpi-grid">

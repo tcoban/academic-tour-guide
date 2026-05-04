@@ -2,7 +2,11 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 export function middleware(request: NextRequest) {
+  const isProduction = process.env.ROADSHOW_ENV === "production";
   const password = process.env.ROADSHOW_APP_PASSWORD ?? process.env.ATG_APP_PASSWORD;
+  if (isProduction && !password) {
+    return new NextResponse("Roadshow access protection is not configured.", { status: 503 });
+  }
   if (!password) {
     return NextResponse.next();
   }
@@ -16,7 +20,6 @@ export function middleware(request: NextRequest) {
         return NextResponse.next();
       }
     } catch {
-      // Fall through to the authentication challenge for malformed headers.
     }
   }
 

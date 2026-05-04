@@ -84,10 +84,10 @@ export function DraftStatusActions({ draftId, currentStatus, checklist = [] }: D
 
       <div className="template-actions">
         <button disabled={pendingStatus !== null || currentStatus === "reviewed" || !canReview} onClick={() => setStatus("reviewed")} type="button">
-          {pendingStatus === "reviewed" ? "Updating..." : "Mark reviewed"}
+          {pendingStatus === "reviewed" ? "Confirming review..." : "Confirm draft reviewed"}
         </button>
         <button disabled={pendingStatus !== null || currentStatus === "sent_manually" || !canSend} onClick={() => setStatus("sent_manually")} type="button">
-          {pendingStatus === "sent_manually" ? "Updating..." : "Mark sent"}
+          {pendingStatus === "sent_manually" ? "Recording send..." : "Mark draft sent outside Roadshow"}
         </button>
         <button
           className="ghost-button"
@@ -95,7 +95,7 @@ export function DraftStatusActions({ draftId, currentStatus, checklist = [] }: D
           onClick={() => setStatus("archived")}
           type="button"
         >
-          {pendingStatus === "archived" ? "Updating..." : "Archive"}
+          {pendingStatus === "archived" ? "Archiving..." : "Archive draft record"}
         </button>
       </div>
 

@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.entities import HostCalendarEvent, TalkEvent
-from app.scraping.sources import _build_source_hash, get_host_calendar_adapter, iter_source_adapters
+from app.scraping.sources import _build_source_hash, get_host_calendar_adapter, iter_implemented_source_adapters
 from app.services.availability import AvailabilityBuilder
 from app.services.clustering import TripClusterer
 from app.services.enrichment import Biographer
@@ -31,16 +31,19 @@ class IngestionService:
         created = 0
         updated = 0
         counts: dict[str, int] = {}
-        for adapter in iter_source_adapters():
+        for adapter in iter_implemented_source_adapters():
             adapter_count = 0
-            for raw_page in adapter.fetch_pages():
-                for event in adapter.extract(raw_page):
-                    status = self._upsert_talk_event(event)
-                    adapter_count += 1
-                    if status == "created":
-                        created += 1
-                    else:
-                        updated += 1
+            try:
+                for raw_page in adapter.fetch_pages():
+                    for event in adapter.extract(raw_page):
+                        status = self._upsert_talk_event(event)
+                        adapter_count += 1
+                        if status == "created":
+                            created += 1
+                        else:
+                            updated += 1
+            except Exception:
+                adapter_count = 0
             counts[adapter.name] = adapter_count
 
         TripClusterer(self.session).rebuild_all()
@@ -135,4 +138,3 @@ class IngestionService:
         self.session.add(event)
         self.session.flush()
         return "created"
-

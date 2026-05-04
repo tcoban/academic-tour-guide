@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { ActionNotice } from "@/components/action-notice";
 import { DraftButton } from "@/components/draft-button";
 import { ManualFactForm } from "@/components/manual-fact-form";
 import { Panel } from "@/components/panel";
@@ -8,12 +9,25 @@ import { ScoreBadge } from "@/components/score-badge";
 import { TourLegButton } from "@/components/tour-leg-button";
 import { getInstitutions, getRelationshipBrief, getResearcher, getSpeakerProfile } from "@/lib/api";
 
+export const dynamic = "force-dynamic";
+
 type ResearcherPageProps = {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ missing_fact?: string | string[] }>;
 };
 
-export default async function ResearcherPage({ params }: ResearcherPageProps) {
+function missingFactsFromParam(value: string | string[] | undefined): string[] {
+  const values = Array.isArray(value) ? value : value ? [value] : [];
+  return values
+    .flatMap((item) => item.split(","))
+    .map((item) => item.trim())
+    .filter((item) => item === "phd_institution" || item === "nationality" || item === "home_institution" || item === "birth_month");
+}
+
+export default async function ResearcherPage({ params, searchParams }: ResearcherPageProps) {
   const { id } = await params;
+  const query = searchParams ? await searchParams : {};
+  const missingFacts = missingFactsFromParam(query.missing_fact);
   const [researcher, speakerProfile, institutions] = await Promise.all([getResearcher(id), getSpeakerProfile(id), getInstitutions()]);
   const kof = institutions.find((institution) => institution.name.includes("KOF")) ?? institutions[0];
   const relationshipBrief = kof ? await getRelationshipBrief(id, kof.id) : null;
@@ -26,7 +40,7 @@ export default async function ResearcherPage({ params }: ResearcherPageProps) {
       <Panel
         title={researcher.name}
         copy={researcher.home_institution || "Home institution pending enrichment"}
-        rightSlot={<Link className="ghost-button" href="/">Back to dashboard</Link>}
+        rightSlot={<Link className="ghost-button" href="/">Back to Start</Link>}
       >
         <div className="facts-grid">
           {approvedFacts.map((fact) => (
@@ -85,22 +99,25 @@ export default async function ResearcherPage({ params }: ResearcherPageProps) {
       </section>
 
       <section className="dual-grid">
-        <Panel title="Dossier refresh" copy="Run researcher-scoped identity and evidence jobs without leaving the dossier.">
+        <Panel title="Evidence search" copy="Search trusted public sources without leaving the dossier.">
+          <div id="evidence-search" />
           <div className="card-list">
             <div className="list-card">
               <h3>Targeted pipeline controls</h3>
               <p className="muted">
-                RePEc sync updates the external identity and ranking. Biographer refresh also fetches linked documents and extracts new fact
-                candidates for review.
+                RePEc sync updates identity and ranking. Search trusted evidence checks RePEc Genealogy, ORCID, CEPR, institution-linked
+                profiles, and CV links, then places extracted claims in the review queue.
               </p>
             </div>
             <ResearcherRefreshActions researcherId={researcher.id} />
           </div>
         </Panel>
 
-        <Panel title="Manual approved facts" copy="Admin-entered facts are approved immediately and can unblock outreach drafts.">
-          <ManualFactForm defaultHomeInstitution={researcher.home_institution} researcherId={researcher.id} />
-        </Panel>
+        <div id="manual-facts">
+          <Panel title="Manual approved facts" copy="Admin-entered facts are approved immediately and can unblock outreach drafts.">
+            <ManualFactForm defaultHomeInstitution={researcher.home_institution} requiredFacts={missingFacts} researcherId={researcher.id} />
+          </Panel>
+        </div>
       </section>
 
       <section className="dual-grid">
@@ -114,6 +131,16 @@ export default async function ResearcherPage({ params }: ResearcherPageProps) {
                   </h3>
                   <p className="fine-print">Confidence {Math.round(fact.confidence * 100)}% | {fact.origin}</p>
                   {fact.evidence_snippet ? <p className="fine-print">{fact.evidence_snippet}</p> : null}
+                  <ActionNotice
+                    severity="warning"
+                    title="Evidence candidate needs approval"
+                    explanation="Approve or reject this fact before Roadshow can use it in an outreach draft."
+                    primaryAction={{
+                      label: "Approve evidence for outreach",
+                      consequence: "Opens the review queue filtered to this speaker and fact type.",
+                      href: `/review?status=pending&researcher_id=${researcher.id}&fact_type=${fact.fact_type}`,
+                    }}
+                  />
                 </div>
               ))
             ) : (
@@ -122,7 +149,7 @@ export default async function ResearcherPage({ params }: ResearcherPageProps) {
           </div>
         </Panel>
 
-        <Panel title="Source documents" copy="Institution-linked public pages and profiles used by the biographer pipeline.">
+        <Panel title="Source documents" copy="Institution-linked public pages and profiles used by the evidence agent.">
           <div className="card-list">
             {researcher.documents.length ? (
               researcher.documents.map((document) => (
@@ -133,7 +160,16 @@ export default async function ResearcherPage({ params }: ResearcherPageProps) {
                 </div>
               ))
             ) : (
-              <p className="fine-print">No linked source documents have been fetched for this dossier yet.</p>
+              <ActionNotice
+                severity="info"
+                title="No source documents fetched yet"
+                explanation="Run trusted evidence search to fetch institution-linked profiles, CV links, ORCID, CEPR, and RePEc Genealogy pages."
+                primaryAction={{
+                  label: "Search trusted evidence",
+                  consequence: "Jumps to the dossier controls that fetch sources and create review candidates.",
+                  href: "#evidence-search",
+                }}
+              />
             )}
           </div>
         </Panel>
@@ -153,7 +189,25 @@ export default async function ResearcherPage({ params }: ResearcherPageProps) {
                   </div>
                   <ScoreBadge score={cluster.opportunity_score} />
                 </div>
-                {cluster.uses_unreviewed_evidence ? <p className="fine-print">This score currently relies on at least one unreviewed fact candidate.</p> : null}
+                {cluster.uses_unreviewed_evidence ? (
+                  <ActionNotice
+                    severity="warning"
+                    title="Score uses unreviewed evidence"
+                    explanation="This opportunity can be ranked, but outreach should wait until the evidence candidate is approved or rejected."
+                    primaryAction={{
+                      label: "Approve evidence for outreach",
+                      consequence: "Opens the review queue filtered to this speaker.",
+                      href: `/review?status=pending&researcher_id=${researcher.id}`,
+                    }}
+                    secondaryActions={[
+                      {
+                        label: "Search trusted evidence",
+                        consequence: "Jumps to the dossier controls that can find stronger source documents.",
+                        href: "#evidence-search",
+                      },
+                    ]}
+                  />
+                ) : null}
                 <div className="timeline-strip">
                   {cluster.rationale.map((reason) => (
                     <span className="timeline-chip" key={`${cluster.id}-${reason.label}`}>

@@ -17,7 +17,7 @@ def _normalize_person_name(value: str) -> str:
 
 
 def _extract_external_id(url: str) -> str:
-    match = re.search(r"/e/([^/?#]+)", url)
+    match = re.search(r"/[ef]/([^/?#]+?)(?:\.html)?(?:[?#]|$)", url)
     if match:
         return match.group(1)
     return url.rstrip("/").rsplit("/", 1)[-1]
@@ -46,6 +46,11 @@ class RepecClient:
         if not candidates:
             return None
         return max(candidates, key=lambda candidate: candidate.match_confidence)
+
+    def top_authors(self, limit: int = 200) -> list[RepecMatch]:
+        response = self.client.get(f"{self.base_url}/top/top.person.all.html")
+        response.raise_for_status()
+        return self._parse_top_authors(response.text, limit)
 
     def _search_json_endpoint(self, name: str) -> list[RepecMatch]:
         response = self.client.get(f"{self.base_url}/cgi-bin/esearch.cgi", params={"q": name})
@@ -105,7 +110,7 @@ class RepecClient:
         soup = BeautifulSoup(html, "html.parser")
         candidates: list[RepecMatch] = []
         seen_profile_urls: set[str] = set()
-        for anchor in soup.select('a[href*="/e/"]'):
+        for anchor in soup.select('a[href*="/e/"], a[href*="/f/"]'):
             profile_url = str(anchor.get("href"))
             if profile_url.startswith("/"):
                 profile_url = f"{self.base_url}{profile_url}"
@@ -127,6 +132,69 @@ class RepecClient:
             if candidate.match_confidence >= 0.45:
                 candidates.append(candidate)
         return candidates
+
+    def _parse_top_authors(self, html: str, limit: int) -> list[RepecMatch]:
+        soup = BeautifulSoup(html, "html.parser")
+        total_authors = self._extract_total_authors(soup.get_text(" ", strip=True))
+        matches: list[RepecMatch] = []
+        seen_ids: set[str] = set()
+        for row in soup.select("tr"):
+            cells = row.find_all("td")
+            if len(cells) < 2:
+                continue
+            try:
+                rank = int(cells[0].get_text(" ", strip=True))
+            except ValueError:
+                continue
+            if rank > limit:
+                break
+            author_anchor = None
+            for anchor in cells[1].select('a[href*="/e/"], a[href*="/f/"]'):
+                label = anchor.get_text(" ", strip=True)
+                if label:
+                    author_anchor = anchor
+                    break
+            if author_anchor is None:
+                continue
+            profile_url = str(author_anchor.get("href"))
+            if profile_url.startswith("/"):
+                profile_url = f"{self.base_url}{profile_url}"
+            canonical_name = author_anchor.get_text(" ", strip=True).replace(" †", "").strip()
+            external_id = _extract_external_id(profile_url)
+            if external_id in seen_ids:
+                continue
+            seen_ids.add(external_id)
+            score = self._coerce_float(cells[2].get_text(" ", strip=True)) if len(cells) > 2 else None
+            percentile = round((rank / total_authors) * 100, 4) if total_authors else None
+            matches.append(
+                RepecMatch(
+                    external_id=external_id,
+                    canonical_name=canonical_name,
+                    profile_url=profile_url,
+                    match_confidence=1.0,
+                    ranking_percentile=percentile,
+                    ranking_label=f"RePEc worldwide rank #{rank}",
+                    metadata_json={
+                        "source": "repec_top_authors",
+                        "ranking_url": f"{self.base_url}/top/top.person.all.html",
+                        "rank": rank,
+                        "score": score,
+                        "total_authors": total_authors,
+                    },
+                )
+            )
+            if len(matches) >= limit:
+                break
+        return matches
+
+    def _extract_total_authors(self, text: str) -> int | None:
+        match = re.search(r"There are\s+([0-9, ]+)\s+registered authors", text, re.IGNORECASE)
+        if not match:
+            return None
+        try:
+            return int(match.group(1).replace(",", "").replace(" ", ""))
+        except ValueError:
+            return None
 
     def _name_similarity(self, left: str, right: str) -> float:
         return SequenceMatcher(None, _normalize_person_name(left), _normalize_person_name(right)).ratio()

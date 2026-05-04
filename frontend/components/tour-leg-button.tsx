@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { proposeTourLeg } from "@/lib/api";
+import { PurposeButton } from "@/components/purpose-button";
 
 type TourLegButtonProps = {
   clusterId: string;
@@ -11,7 +12,7 @@ type TourLegButtonProps = {
   label?: string;
 };
 
-export function TourLegButton({ clusterId, className = "ghost-button", label = "Propose tour leg" }: TourLegButtonProps) {
+export function TourLegButton({ clusterId, className = "ghost-button", label = "Add KOF as a tour stop" }: TourLegButtonProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,11 +31,14 @@ export function TourLegButton({ clusterId, className = "ghost-button", label = "
   }
 
   return (
-    <div className="stack">
-      <button className={className} disabled={pending} onClick={handleClick} type="button">
-        {pending ? "Modeling..." : label}
-      </button>
-      {error ? <span className="fine-print">{error}</span> : null}
-    </div>
+    <PurposeButton
+      className={className}
+      errorText={error}
+      helperText="Builds a KOF stop with adjacent travel split and Zurich hospitality; no speaker fee is assumed."
+      label={label}
+      onClick={handleClick}
+      pending={pending}
+      runningLabel="Modeling KOF stop..."
+    />
   );
 }

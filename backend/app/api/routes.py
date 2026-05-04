@@ -8,8 +8,10 @@ from sqlalchemy import delete, desc, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import session_dep
+from app.core.config import settings
 from app.models.entities import (
     AuditEvent,
+    BusinessCaseRun,
     FactCandidate,
     FeedbackSignal,
     HostCalendarEvent,
@@ -23,13 +25,18 @@ from app.models.entities import (
     SourceHealthCheck,
     SourceDocument,
     TalkEvent,
+    TourAssemblyProposal,
     TourLeg,
+    TravelPriceCheck,
     TripCluster,
     WishlistAlert,
     WishlistEntry,
+    WishlistMatchGroup,
+    WishlistMatchParticipant,
 )
 from app.schemas.api import (
     AuditEventRead,
+    BusinessCaseRunRead,
     CalendarOverlayResponse,
     DailyCatchResponse,
     DraftCreate,
@@ -45,6 +52,8 @@ from app.schemas.api import (
     InstitutionProfileRead,
     InstitutionProfileUpdate,
     JobRunResponse,
+    MorningSweepResponse,
+    OperatorCockpitResponse,
     OperatorRunbookResponse,
     OpportunityWorkbenchResponse,
     RelationshipBriefRead,
@@ -65,26 +74,41 @@ from app.schemas.api import (
     SourceDocumentRead,
     SpeakerProfileRead,
     SpeakerProfileUpdate,
+    TourAssemblyProposalRead,
+    TourAssemblyProposalRequest,
     TourLegProposalRequest,
     TourLegRead,
+    TravelPriceCheckCreate,
+    TravelPriceCheckRead,
     TripClusterRead,
     WishlistAlertRead,
+    WishlistAlertStatusUpdate,
     WishlistEntryCreate,
     WishlistEntryRead,
+    WishlistMatchGroupRead,
+    WishlistMatchParticipantRead,
+    WishlistMatchStatusUpdate,
 )
 from app.services.audit import SourceAuditor, SourceReliabilityService
 from app.services.availability import AvailabilityBuilder
+from app.services.business_cases import BusinessCaseService
 from app.services.enrichment import Biographer, BiographerPipeline
 from app.services.ingestion import IngestionService
+from app.services.operator import MorningSweepRunner, OperatorCockpit
 from app.services.outreach import DraftGenerator, ReviewRequiredError
 from app.services.opportunities import OpportunityWorkbench
+from app.services.plausibility import PlausibilityService
 from app.services.review import FactReviewService
 from app.services.roadshow import RoadshowService
 from app.services.scoring import Scorer
 from app.services.seed import seed_demo_data
+from app.services.tour_assembly import TourAssemblyService
+from app.services.travel_prices import PriceQuoteRequest, TravelPriceChecker
 
 router = APIRouter()
 ALLOWED_DRAFT_STATUSES = {"draft", "reviewed", "sent_manually", "archived"}
+ALLOWED_WISHLIST_ALERT_STATUSES = {"new", "reviewed", "dismissed", "converted"}
+ALLOWED_WISHLIST_MATCH_STATUSES = {"new", "reviewed", "dismissed", "converted", "stale"}
 
 
 def _count(session: Session, statement) -> int:
@@ -125,6 +149,62 @@ def _validate_draft_status_transition(draft: OutreachDraft, payload: DraftStatus
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Manual send confirmation is required before marking the draft sent.",
             )
+
+
+def _wishlist_alert_read(alert: WishlistAlert) -> WishlistAlertRead:
+    return WishlistAlertRead.model_validate(
+        {
+            **WishlistAlertRead.model_validate(alert).model_dump(),
+            "researcher_name": alert.researcher.name if alert.researcher else None,
+            "institution_name": alert.wishlist_entry.institution.name if alert.wishlist_entry and alert.wishlist_entry.institution else None,
+        }
+    )
+
+
+def _wishlist_match_read(group: WishlistMatchGroup) -> WishlistMatchGroupRead:
+    participants = [
+        WishlistMatchParticipantRead.model_validate(participant).model_dump()
+        for participant in sorted(group.participants, key=lambda item: item.masked_label)
+    ]
+    return WishlistMatchGroupRead.model_validate(
+        {
+            "id": group.id,
+            "researcher_id": group.researcher_id,
+            "normalized_speaker_name": group.normalized_speaker_name,
+            "display_speaker_name": group.display_speaker_name,
+            "status": group.status,
+            "radius_km": group.radius_km,
+            "score": group.score,
+            "anonymity_mode": group.anonymity_mode,
+            "rationale": group.rationale,
+            "metadata_json": group.metadata_json,
+            "participant_count": len(group.participants),
+            "participants": participants,
+            "created_at": group.created_at,
+            "updated_at": group.updated_at,
+        }
+    )
+
+
+def _tour_assembly_read(proposal: TourAssemblyProposal) -> TourAssemblyProposalRead:
+    return TourAssemblyProposalRead.model_validate(
+        {
+            "id": proposal.id,
+            "match_group_id": proposal.match_group_id,
+            "researcher_id": proposal.researcher_id,
+            "tour_leg_id": proposal.tour_leg_id,
+            "speaker_draft_id": proposal.speaker_draft_id,
+            "title": proposal.title,
+            "status": proposal.status,
+            "term_sheet_json": proposal.term_sheet_json,
+            "budget_summary_json": proposal.budget_summary_json,
+            "blockers": proposal.blockers,
+            "masked_summary_json": proposal.masked_summary_json,
+            "match_group": _wishlist_match_read(proposal.match_group) if proposal.match_group else None,
+            "created_at": proposal.created_at,
+            "updated_at": proposal.updated_at,
+        }
+    )
 
 
 @router.get("/health")
@@ -179,7 +259,7 @@ def operator_runbook(session: Session = Depends(session_dep)) -> OperatorRunbook
                 status=source_status,
                 detail=source_detail,
                 href="/source-health",
-                cta_label="Open Source Health",
+                cta_label="Inspect data sources",
                 count=source_attention_count,
             ),
             RunbookStepRead(
@@ -194,7 +274,7 @@ def operator_runbook(session: Session = Depends(session_dep)) -> OperatorRunbook
                     else "No pending biographic facts are blocking the queue."
                 ),
                 href="/review",
-                cta_label="Review Facts",
+                cta_label="Approve evidence for outreach",
                 count=pending_fact_count,
             ),
             RunbookStepRead(
@@ -209,7 +289,7 @@ def operator_runbook(session: Session = Depends(session_dep)) -> OperatorRunbook
                     else "No opportunity has all required approved facts and slot context yet."
                 ),
                 href="/opportunities",
-                cta_label="Open Workbench",
+                cta_label="Review draft-ready opportunities",
                 count=draft_ready_opportunity_count,
             ),
             RunbookStepRead(
@@ -222,11 +302,70 @@ def operator_runbook(session: Session = Depends(session_dep)) -> OperatorRunbook
                     else "No generated drafts are waiting for review or manual send status."
                 ),
                 href="/drafts",
-                cta_label="Open Drafts",
+                cta_label="Review draft lifecycle",
                 count=draft_followup_count,
             ),
         ],
     )
+
+
+@router.get("/operator/cockpit", response_model=OperatorCockpitResponse)
+def operator_cockpit(session: Session = Depends(session_dep)) -> dict:
+    RoadshowService(session).refresh_wishlist_alerts()
+    TourAssemblyService(session).refresh_wishlist_matches()
+    session.commit()
+    return OperatorCockpit(session).build()
+
+
+@router.post("/operator/morning-sweep", response_model=MorningSweepResponse)
+def operator_morning_sweep(session: Session = Depends(session_dep)) -> dict:
+    result = MorningSweepRunner(session).run()
+    session.commit()
+    return result
+
+
+@router.post("/operator/real-sync", response_model=MorningSweepResponse)
+def operator_real_sync(session: Session = Depends(session_dep)) -> dict:
+    result = MorningSweepRunner(session).run()
+    session.commit()
+    return result
+
+
+@router.post("/business-cases/run", response_model=BusinessCaseRunRead)
+def run_business_case_shadow_audit(session: Session = Depends(session_dep)) -> BusinessCaseRun:
+    run = BusinessCaseService(session).run_shadow_audit()
+    session.commit()
+    run = session.scalar(
+        select(BusinessCaseRun)
+        .where(BusinessCaseRun.id == run.id)
+        .options(selectinload(BusinessCaseRun.results))
+    )
+    return run
+
+
+@router.get("/business-cases/runs", response_model=list[BusinessCaseRunRead])
+def list_business_case_runs(
+    limit: int = Query(default=10, ge=1, le=50),
+    session: Session = Depends(session_dep),
+) -> list[BusinessCaseRun]:
+    return session.scalars(
+        select(BusinessCaseRun)
+        .options(selectinload(BusinessCaseRun.results))
+        .order_by(desc(BusinessCaseRun.started_at))
+        .limit(limit)
+    ).all()
+
+
+@router.get("/business-cases/runs/{run_id}", response_model=BusinessCaseRunRead)
+def get_business_case_run(run_id: str, session: Session = Depends(session_dep)) -> BusinessCaseRun:
+    run = session.scalar(
+        select(BusinessCaseRun)
+        .where(BusinessCaseRun.id == run_id)
+        .options(selectinload(BusinessCaseRun.results))
+    )
+    if not run:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Business-case run not found")
+    return run
 
 
 @router.post("/jobs/ingest", response_model=IngestResponse)
@@ -261,20 +400,74 @@ def sync_repec(
     return JobRunResponse(**asdict(summary))
 
 
-@router.post("/jobs/biographer-refresh", response_model=JobRunResponse)
-def biographer_refresh(
-    payload: ResearcherJobRequest | None = None,
-    session: Session = Depends(session_dep),
-) -> JobRunResponse:
-    summary = BiographerPipeline(session).refresh(payload.researcher_id if payload else None)
+@router.post("/jobs/repec-top-authors", response_model=JobRunResponse)
+def sync_repec_top_authors(limit: int = 200, session: Session = Depends(session_dep)) -> JobRunResponse:
+    summary = BiographerPipeline(session).sync_top_authors(limit=max(1, min(limit, 500)))
     Scorer(session).score_all_clusters()
     session.commit()
     return JobRunResponse(**asdict(summary))
 
 
+@router.post("/jobs/biographer-refresh", response_model=JobRunResponse)
+def biographer_refresh(
+    payload: ResearcherJobRequest | None = None,
+    session: Session = Depends(session_dep),
+) -> JobRunResponse:
+    summary = BiographerPipeline(session).search_trusted_evidence(payload.researcher_id if payload else None)
+    PlausibilityService(session).run()
+    Scorer(session).score_all_clusters()
+    session.commit()
+    return JobRunResponse(**asdict(summary))
+
+
+@router.post("/jobs/evidence-search", response_model=JobRunResponse)
+def evidence_search(
+    payload: ResearcherJobRequest | None = None,
+    session: Session = Depends(session_dep),
+) -> JobRunResponse:
+    researcher_id = payload.researcher_id if payload else None
+    summary = BiographerPipeline(session).search_trusted_evidence(researcher_id)
+    PlausibilityService(session).run()
+    Scorer(session).score_all_clusters()
+    RoadshowService(session).record_event(
+        event_type="jobs.evidence_search",
+        entity_type="researcher" if researcher_id else "evidence",
+        entity_id=researcher_id or "all",
+        payload=asdict(summary),
+    )
+    session.commit()
+    return JobRunResponse(**asdict(summary))
+
+
+@router.post("/jobs/plausibility-check", response_model=JobRunResponse)
+def plausibility_check(session: Session = Depends(session_dep)) -> JobRunResponse:
+    summary = PlausibilityService(session).run()
+    Scorer(session).score_all_clusters()
+    RoadshowService(session).record_event(
+        event_type="jobs.plausibility_check",
+        entity_type="evidence",
+        entity_id="plausibility",
+        payload=asdict(summary),
+    )
+    session.commit()
+    return JobRunResponse(
+        processed_count=summary.processed_count,
+        created_count=summary.created_count,
+        updated_count=summary.updated_count,
+    )
+
+
 @router.post("/jobs/seed-demo", response_model=JobRunResponse)
 def seed_demo(session: Session = Depends(session_dep)) -> JobRunResponse:
+    if not settings.demo_tools_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Demo tooling is not enabled.")
     summary = seed_demo_data(session)
+    RoadshowService(session).record_event(
+        event_type="jobs.seed_demo",
+        entity_type="demo",
+        entity_id="local_seed",
+        payload=asdict(summary),
+    )
     session.commit()
     return JobRunResponse(**asdict(summary))
 
@@ -311,6 +504,23 @@ def get_researcher_documents(researcher_id: str, session: Session = Depends(sess
     return session.scalars(
         select(SourceDocument).where(SourceDocument.researcher_id == researcher_id).order_by(SourceDocument.created_at.desc())
     ).all()
+
+
+@router.post("/researchers/{researcher_id}/evidence-search", response_model=JobRunResponse)
+def researcher_evidence_search(researcher_id: str, session: Session = Depends(session_dep)) -> JobRunResponse:
+    if not session.get(Researcher, researcher_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
+    summary = BiographerPipeline(session).search_trusted_evidence(researcher_id)
+    PlausibilityService(session).run()
+    Scorer(session).score_all_clusters()
+    RoadshowService(session).record_event(
+        event_type="researcher.evidence_search",
+        entity_type="researcher",
+        entity_id=researcher_id,
+        payload=asdict(summary),
+    )
+    session.commit()
+    return JobRunResponse(**asdict(summary))
 
 
 @router.post("/researchers/{researcher_id}/enrich", response_model=ResearcherRead)
@@ -404,6 +614,7 @@ def create_wishlist_entry(payload: WishlistEntryCreate, session: Session = Depen
     if payload.researcher_id and not session.get(Researcher, payload.researcher_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
     entry = RoadshowService(session).create_wishlist_entry(payload.model_dump())
+    TourAssemblyService(session).refresh_wishlist_matches()
     session.commit()
     session.refresh(entry)
     return entry
@@ -423,6 +634,7 @@ def update_wishlist_entry(
     if payload.researcher_id and not session.get(Researcher, payload.researcher_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Researcher not found")
     RoadshowService(session).update_wishlist_entry(entry, payload.model_dump())
+    TourAssemblyService(session).refresh_wishlist_matches()
     session.commit()
     session.refresh(entry)
     return entry
@@ -434,6 +646,8 @@ def delete_wishlist_entry(entry_id: str, session: Session = Depends(session_dep)
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist entry not found")
     RoadshowService(session).delete_wishlist_entry(entry)
+    session.flush()
+    TourAssemblyService(session).refresh_wishlist_matches()
     session.commit()
 
 
@@ -449,16 +663,98 @@ def list_wishlist_alerts(session: Session = Depends(session_dep)) -> list[Wishli
         )
         .order_by(WishlistAlert.status, desc(WishlistAlert.score), WishlistAlert.created_at.desc())
     ).all()
-    return [
-        WishlistAlertRead.model_validate(
-            {
-                **WishlistAlertRead.model_validate(alert).model_dump(),
-                "researcher_name": alert.researcher.name if alert.researcher else None,
-                "institution_name": alert.wishlist_entry.institution.name if alert.wishlist_entry and alert.wishlist_entry.institution else None,
-            }
+    return [_wishlist_alert_read(alert) for alert in alerts]
+
+
+@router.patch("/wishlist-alerts/{alert_id}", response_model=WishlistAlertRead)
+def update_wishlist_alert_status(
+    alert_id: str,
+    payload: WishlistAlertStatusUpdate,
+    session: Session = Depends(session_dep),
+) -> WishlistAlertRead:
+    if payload.status not in ALLOWED_WISHLIST_ALERT_STATUSES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported wishlist alert status")
+    alert = session.scalar(
+        select(WishlistAlert)
+        .where(WishlistAlert.id == alert_id)
+        .options(
+            selectinload(WishlistAlert.researcher),
+            selectinload(WishlistAlert.wishlist_entry).selectinload(WishlistEntry.institution),
         )
-        for alert in alerts
-    ]
+    )
+    if not alert:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist alert not found")
+
+    old_status = alert.status
+    alert.status = payload.status
+    alert.resolved_at = None if payload.status == "new" else datetime.now(UTC)
+    metadata = dict(alert.metadata_json or {})
+    if payload.note:
+        metadata["status_note"] = payload.note
+    alert.metadata_json = metadata
+    session.add(alert)
+    RoadshowService(session).record_event(
+        event_type="wishlist_alert.status_updated",
+        entity_type="wishlist_alert",
+        entity_id=alert.id,
+        payload={"from": old_status, "to": payload.status, "note": payload.note},
+    )
+    session.commit()
+    session.refresh(alert)
+    return _wishlist_alert_read(alert)
+
+
+@router.post("/wishlist-matches/refresh", response_model=list[WishlistMatchGroupRead])
+def refresh_wishlist_matches(session: Session = Depends(session_dep)) -> list[WishlistMatchGroupRead]:
+    groups = TourAssemblyService(session).refresh_wishlist_matches()
+    session.commit()
+    groups = session.scalars(
+        select(WishlistMatchGroup)
+        .where(WishlistMatchGroup.id.in_([group.id for group in groups]))
+        .options(selectinload(WishlistMatchGroup.participants))
+        .order_by(desc(WishlistMatchGroup.score), WishlistMatchGroup.created_at.desc())
+    ).all()
+    return [_wishlist_match_read(group) for group in groups]
+
+
+@router.get("/wishlist-matches", response_model=list[WishlistMatchGroupRead])
+def list_wishlist_matches(session: Session = Depends(session_dep)) -> list[WishlistMatchGroupRead]:
+    groups = session.scalars(
+        select(WishlistMatchGroup)
+        .options(selectinload(WishlistMatchGroup.participants))
+        .where(WishlistMatchGroup.status != "stale")
+        .order_by(desc(WishlistMatchGroup.score), WishlistMatchGroup.created_at.desc())
+    ).all()
+    return [_wishlist_match_read(group) for group in groups]
+
+
+@router.get("/wishlist-matches/{match_id}", response_model=WishlistMatchGroupRead)
+def get_wishlist_match(match_id: str, session: Session = Depends(session_dep)) -> WishlistMatchGroupRead:
+    group = session.scalar(
+        select(WishlistMatchGroup).where(WishlistMatchGroup.id == match_id).options(selectinload(WishlistMatchGroup.participants))
+    )
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist match not found")
+    return _wishlist_match_read(group)
+
+
+@router.patch("/wishlist-matches/{match_id}/status", response_model=WishlistMatchGroupRead)
+def update_wishlist_match_status(
+    match_id: str,
+    payload: WishlistMatchStatusUpdate,
+    session: Session = Depends(session_dep),
+) -> WishlistMatchGroupRead:
+    if payload.status not in ALLOWED_WISHLIST_MATCH_STATUSES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported wishlist match status")
+    group = session.scalar(
+        select(WishlistMatchGroup).where(WishlistMatchGroup.id == match_id).options(selectinload(WishlistMatchGroup.participants))
+    )
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist match not found")
+    TourAssemblyService(session).update_match_status(group, payload.status, note=payload.note)
+    session.commit()
+    session.refresh(group)
+    return _wishlist_match_read(group)
 
 
 @router.post("/tour-legs/propose", response_model=TourLegRead)
@@ -478,9 +774,65 @@ def propose_tour_leg(payload: TourLegProposalRequest, session: Session = Depends
     return session.scalar(select(TourLeg).where(TourLeg.id == tour_leg.id).options(selectinload(TourLeg.stops)))
 
 
+@router.post("/travel-price-checks", response_model=TravelPriceCheckRead)
+def create_travel_price_check(payload: TravelPriceCheckCreate, session: Session = Depends(session_dep)) -> TravelPriceCheck:
+    if payload.tour_leg_id and not session.get(TourLeg, payload.tour_leg_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour leg not found")
+    check = TravelPriceChecker(session).quote(
+        PriceQuoteRequest(
+            origin_city=payload.origin_city,
+            destination_city=payload.destination_city,
+            departure_at=payload.departure_at,
+            travel_class=payload.travel_class,
+            fare_policy=payload.fare_policy,
+            tour_leg_id=payload.tour_leg_id,
+            force_refresh=payload.force_refresh,
+        )
+    )
+    session.commit()
+    session.refresh(check)
+    return check
+
+
+@router.get("/travel-price-checks", response_model=list[TravelPriceCheckRead])
+def list_travel_price_checks(
+    tour_leg_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    session: Session = Depends(session_dep),
+) -> list[TravelPriceCheck]:
+    query = select(TravelPriceCheck).order_by(TravelPriceCheck.fetched_at.desc()).limit(limit)
+    if tour_leg_id:
+        query = (
+            select(TravelPriceCheck)
+            .where(TravelPriceCheck.tour_leg_id == tour_leg_id)
+            .order_by(TravelPriceCheck.fetched_at.desc())
+            .limit(limit)
+        )
+    return session.scalars(query).all()
+
+
 @router.get("/tour-legs", response_model=list[TourLegRead])
 def list_tour_legs(session: Session = Depends(session_dep)) -> list[TourLeg]:
     return session.scalars(select(TourLeg).options(selectinload(TourLeg.stops)).order_by(TourLeg.created_at.desc())).all()
+
+
+@router.post("/tour-legs/{tour_leg_id}/refresh-prices", response_model=TourLegRead)
+def refresh_tour_leg_prices(tour_leg_id: str, session: Session = Depends(session_dep)) -> TourLeg:
+    tour_leg = session.scalar(select(TourLeg).where(TourLeg.id == tour_leg_id).options(selectinload(TourLeg.stops)))
+    if not tour_leg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour leg not found")
+    TravelPriceChecker(session).refresh_tour_leg(tour_leg, force=True)
+    RoadshowService(session).record_event(
+        event_type="travel_prices.refreshed",
+        entity_type="tour_leg",
+        entity_id=tour_leg.id,
+        payload={
+            "component_count": len((tour_leg.cost_split_json or {}).get("components") or []),
+            "estimated_travel_total_chf": tour_leg.estimated_travel_total_chf,
+        },
+    )
+    session.commit()
+    return session.scalar(select(TourLeg).where(TourLeg.id == tour_leg.id).options(selectinload(TourLeg.stops)))
 
 
 @router.get("/tour-legs/{tour_leg_id}", response_model=TourLegRead)
@@ -489,6 +841,67 @@ def get_tour_leg(tour_leg_id: str, session: Session = Depends(session_dep)) -> T
     if not tour_leg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour leg not found")
     return tour_leg
+
+
+@router.post("/tour-assemblies/propose", response_model=TourAssemblyProposalRead)
+def propose_tour_assembly(
+    payload: TourAssemblyProposalRequest,
+    session: Session = Depends(session_dep),
+) -> TourAssemblyProposalRead:
+    group = session.get(WishlistMatchGroup, payload.match_group_id)
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Wishlist match not found")
+    try:
+        proposal = TourAssemblyService(session).propose_assembly(group)
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    session.commit()
+    proposal = session.scalar(
+        select(TourAssemblyProposal)
+        .where(TourAssemblyProposal.id == proposal.id)
+        .options(
+            selectinload(TourAssemblyProposal.match_group).selectinload(WishlistMatchGroup.participants),
+        )
+    )
+    return _tour_assembly_read(proposal)
+
+
+@router.get("/tour-assemblies", response_model=list[TourAssemblyProposalRead])
+def list_tour_assemblies(session: Session = Depends(session_dep)) -> list[TourAssemblyProposalRead]:
+    proposals = session.scalars(
+        select(TourAssemblyProposal)
+        .options(selectinload(TourAssemblyProposal.match_group).selectinload(WishlistMatchGroup.participants))
+        .order_by(TourAssemblyProposal.status, TourAssemblyProposal.created_at.desc())
+    ).all()
+    return [_tour_assembly_read(proposal) for proposal in proposals]
+
+
+@router.get("/tour-assemblies/{proposal_id}", response_model=TourAssemblyProposalRead)
+def get_tour_assembly(proposal_id: str, session: Session = Depends(session_dep)) -> TourAssemblyProposalRead:
+    proposal = session.scalar(
+        select(TourAssemblyProposal)
+        .where(TourAssemblyProposal.id == proposal_id)
+        .options(selectinload(TourAssemblyProposal.match_group).selectinload(WishlistMatchGroup.participants))
+    )
+    if not proposal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour assembly proposal not found")
+    return _tour_assembly_read(proposal)
+
+
+@router.post("/tour-assemblies/{proposal_id}/speaker-draft", response_model=DraftRead)
+def create_tour_assembly_speaker_draft(proposal_id: str, session: Session = Depends(session_dep)) -> OutreachDraft:
+    proposal = session.get(TourAssemblyProposal, proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour assembly proposal not found")
+    try:
+        draft = TourAssemblyService(session).create_speaker_draft(proposal)
+    except ReviewRequiredError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+    session.commit()
+    session.refresh(draft)
+    return draft
 
 
 @router.get("/relationship-briefs/{speaker_id}/{institution_id}", response_model=RelationshipBriefRead)
@@ -554,7 +967,7 @@ def list_trip_clusters(session: Session = Depends(session_dep)) -> list[TripClus
 
 @router.get("/calendar/overlay", response_model=CalendarOverlayResponse)
 def calendar_overlay(
-    rebuild: bool = Query(default=True),
+    rebuild: bool = Query(default=False),
     session: Session = Depends(session_dep),
 ) -> CalendarOverlayResponse:
     if rebuild:
@@ -815,6 +1228,7 @@ def list_drafts(
             }
         )
         for draft in drafts
+        if draft.researcher and draft.trip_cluster
     ]
 
 

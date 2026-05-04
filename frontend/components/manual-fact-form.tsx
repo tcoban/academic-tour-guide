@@ -9,6 +9,7 @@ import { enrichResearcher, type EnrichResearcherPayload } from "@/lib/api";
 type ManualFactFormProps = {
   researcherId: string;
   defaultHomeInstitution?: string | null;
+  requiredFacts?: string[];
 };
 
 function optionalText(value: string): string | null {
@@ -16,7 +17,14 @@ function optionalText(value: string): string | null {
   return trimmed ? trimmed : null;
 }
 
-export function ManualFactForm({ researcherId, defaultHomeInstitution }: ManualFactFormProps) {
+const factLabels: Record<string, string> = {
+  phd_institution: "PhD institution",
+  nationality: "nationality",
+  home_institution: "home institution",
+  birth_month: "birth month",
+};
+
+export function ManualFactForm({ researcherId, defaultHomeInstitution, requiredFacts = [] }: ManualFactFormProps) {
   const router = useRouter();
   const [phdInstitution, setPhdInstitution] = useState("");
   const [nationality, setNationality] = useState("");
@@ -26,6 +34,8 @@ export function ManualFactForm({ researcherId, defaultHomeInstitution }: ManualF
   const [evidenceSnippet, setEvidenceSnippet] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const requiredSet = new Set(requiredFacts);
+  const firstRequiredFact = requiredFacts[0];
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -40,6 +50,25 @@ export function ManualFactForm({ researcherId, defaultHomeInstitution }: ManualF
     const hasFact = Boolean(payload.phd_institution || payload.nationality || payload.home_institution || payload.birth_month);
     if (!hasFact) {
       setMessage("Add at least one fact before saving.");
+      return;
+    }
+    const missingRequired = requiredFacts.filter((factType) => {
+      if (factType === "phd_institution") {
+        return !payload.phd_institution;
+      }
+      if (factType === "nationality") {
+        return !payload.nationality;
+      }
+      if (factType === "home_institution") {
+        return !payload.home_institution;
+      }
+      if (factType === "birth_month") {
+        return !payload.birth_month;
+      }
+      return false;
+    });
+    if (missingRequired.length) {
+      setMessage(`To clear this blocker, add ${missingRequired.map((factType) => factLabels[factType] ?? factType).join(" and ")}.`);
       return;
     }
 
@@ -63,22 +92,58 @@ export function ManualFactForm({ researcherId, defaultHomeInstitution }: ManualF
 
   return (
     <form className="stack" onSubmit={handleSubmit}>
+      {requiredFacts.length ? (
+        <div className="unblock-callout">
+          <strong>Clear outreach blocker</strong>
+          <p>
+            Add {requiredFacts.map((factType) => factLabels[factType] ?? factType).join(" and ")} here. Saving creates approved evidence
+            immediately and refreshes draft readiness.
+          </p>
+        </div>
+      ) : null}
       <div className="form-grid">
         <label>
           PhD institution
-          <input value={phdInstitution} onChange={(event) => setPhdInstitution(event.target.value)} placeholder="University of Mannheim" />
+          <input
+            autoFocus={firstRequiredFact === "phd_institution"}
+            className={requiredSet.has("phd_institution") ? "input-needs-action" : undefined}
+            required={requiredSet.has("phd_institution")}
+            value={phdInstitution}
+            onChange={(event) => setPhdInstitution(event.target.value)}
+            placeholder="University of Mannheim"
+          />
         </label>
         <label>
           Nationality
-          <input value={nationality} onChange={(event) => setNationality(event.target.value)} placeholder="German" />
+          <input
+            autoFocus={firstRequiredFact === "nationality"}
+            className={requiredSet.has("nationality") ? "input-needs-action" : undefined}
+            required={requiredSet.has("nationality")}
+            value={nationality}
+            onChange={(event) => setNationality(event.target.value)}
+            placeholder="German"
+          />
         </label>
         <label>
           Home institution
-          <input value={homeInstitution} onChange={(event) => setHomeInstitution(event.target.value)} placeholder="MIT" />
+          <input
+            autoFocus={firstRequiredFact === "home_institution"}
+            className={requiredSet.has("home_institution") ? "input-needs-action" : undefined}
+            required={requiredSet.has("home_institution")}
+            value={homeInstitution}
+            onChange={(event) => setHomeInstitution(event.target.value)}
+            placeholder="MIT"
+          />
         </label>
         <label>
           Birth month
-          <select value={birthMonth} onChange={(event) => setBirthMonth(event.target.value)}>
+          <select
+            autoFocus={firstRequiredFact === "birth_month"}
+            className={requiredSet.has("birth_month") ? "input-needs-action" : undefined}
+            required={requiredSet.has("birth_month")}
+            value={birthMonth}
+            onChange={(event) => setBirthMonth(event.target.value)}
+          >
             <option value="">Unknown</option>
             {Array.from({ length: 12 }, (_, index) => (
               <option key={index + 1} value={index + 1}>

@@ -1,6 +1,9 @@
+import { ActionNotice } from "@/components/action-notice";
 import { Panel } from "@/components/panel";
 import { SourceJobRunner } from "@/components/source-job-runner";
 import { getSourceHealth, getSourceHealthHistory, getSourceReliability } from "@/lib/api";
+
+export const dynamic = "force-dynamic";
 
 function sourceLabel(name: string): string {
   return name
@@ -10,11 +13,11 @@ function sourceLabel(name: string): string {
 }
 
 function healthTone(status: string, eventCount: number): string {
+  if (status === "needs_adapter") {
+    return "warning";
+  }
   if (status !== "ok") {
     return "blocked";
-  }
-  if (eventCount === 0) {
-    return "warning";
   }
   return "";
 }
@@ -23,10 +26,50 @@ function trendTone(needsAttention: boolean, trend: string): string {
   if (needsAttention) {
     return "blocked";
   }
-  if (trend === "new") {
-    return "warning";
-  }
   return "";
+}
+
+function sourceActionNotice({
+  title,
+  explanation,
+  officialUrl,
+  actionLabel,
+  actionHref,
+  consequence,
+  severity = "warning",
+}: {
+  title: string;
+  explanation: string;
+  officialUrl?: string | null;
+  actionLabel?: string | null;
+  actionHref?: string | null;
+  consequence?: string | null;
+  severity?: "warning" | "blocked" | "error" | "info";
+}) {
+  const href = actionHref || officialUrl || "#source-operations";
+  const external = href.startsWith("http");
+  return (
+    <ActionNotice
+      severity={severity}
+      title={title}
+      explanation={explanation}
+      primaryAction={{
+        label: actionLabel || (officialUrl ? "Open official source" : "Run source operations"),
+        consequence: consequence || (officialUrl
+          ? "Opens the watched institution page so you can confirm whether public future events exist."
+          : "Jumps to source operations where you can rerun the audit or source sync."),
+        href,
+        external,
+      }}
+      secondaryActions={[
+        {
+          label: "Run source operations",
+          consequence: "Jumps to the controls that rerun KOF sync, external ingest, or source audit.",
+          href: "#source-operations",
+        },
+      ]}
+    />
+  );
 }
 
 export default async function SourceHealthPage() {
@@ -34,7 +77,7 @@ export default async function SourceHealthPage() {
   const totalEvents = health.reduce((sum, source) => sum + source.event_count, 0);
   const healthySources = health.filter((source) => source.status === "ok" && source.event_count > 0).length;
   const zeroEventSources = health.filter((source) => source.status === "ok" && source.event_count === 0).length;
-  const failingSources = health.filter((source) => source.status !== "ok").length;
+  const sourcesWithFetchErrors = health.filter((source) => source.status !== "ok" && source.status !== "needs_adapter").length;
   const latestHistory = history.slice(0, 12);
   const attentionSources = reliability.filter((source) => source.needs_attention);
 
@@ -43,10 +86,10 @@ export default async function SourceHealthPage() {
       <section className="hero">
         <div className="hero-card">
           <span className="eyebrow">Operational Radar</span>
-          <h1 className="hero-title">Know which ears are actually hearing.</h1>
+          <h1 className="hero-title">Know which data sources are actually producing events.</h1>
           <p className="hero-copy">
-            This live audit fetches each pilot source, runs the parser, and shows whether Roadshow is extracting current events or
-            needs adapter attention.
+            This live audit fetches each watched source, runs the parser, and shows whether Roadshow is extracting current events or
+            needs source-specific adapter work.
           </p>
           <div className="kpi-grid">
             <div className="metric">
@@ -63,14 +106,14 @@ export default async function SourceHealthPage() {
             </div>
             <div className="metric">
               <div className="metric-value">{attentionSources.length}</div>
-              <div className="metric-label">Sources needing attention</div>
+              <div className="metric-label">Sources needing action</div>
             </div>
           </div>
         </div>
-        <Panel title="What this means" copy="Zero events can mean either no public events or a source that needs a richer adapter.">
+        <Panel title="What this means" copy="Zero events can mean either no public future events or a source that needs a richer adapter.">
           <div className="card-list">
             <div className="list-card">
-              <h3>{failingSources} failing sources</h3>
+              <h3>{sourcesWithFetchErrors} sources with fetch errors</h3>
               <p className="muted">Network, URL, or parser exceptions show up as blocked health cards.</p>
             </div>
             <div className="list-card">
@@ -81,7 +124,8 @@ export default async function SourceHealthPage() {
         </Panel>
       </section>
 
-      <Panel title="Run sync jobs" copy="Trigger the practical maintenance jobs without leaving the dashboard.">
+      <Panel title="Run source operations" copy="Trigger focused maintenance operations without leaving this workspace.">
+        <div id="source-operations" />
         <SourceJobRunner />
       </Panel>
 
@@ -94,24 +138,55 @@ export default async function SourceHealthPage() {
                   <div>
                     <h3>{sourceLabel(source.source_name)}</h3>
                     <p className="muted">
-                      {source.checks_recorded} checks · {(source.success_rate * 100).toFixed(0)}% success
+                      {source.checks_recorded} checks | {(source.success_rate * 100).toFixed(0)}% success
                     </p>
                   </div>
                   <span className={`status-pill ${trendTone(source.needs_attention, source.trend)}`}>{source.trend}</span>
                 </div>
                 <div className="timeline-strip">
                   <span className="timeline-chip">latest {source.latest_event_count}</span>
+                  <span className="timeline-chip">last {source.last_event_count}</span>
                   <span className="timeline-chip">avg {source.average_event_count}</span>
                   {source.previous_event_count !== null && source.previous_event_count !== undefined ? (
                     <span className="timeline-chip">previous {source.previous_event_count}</span>
                   ) : null}
                 </div>
-                {source.attention_reason ? <p className="fine-print">{source.attention_reason}</p> : null}
+                {source.needs_attention || source.needs_adapter || source.latest_event_count === 0 ? (
+                  sourceActionNotice({
+                    title: source.needs_adapter
+                      ? "Adapter work is needed for this source"
+                      : source.needs_attention
+                        ? "Source signal needs action"
+                        : "No future events were extracted",
+                    explanation:
+                      source.attention_reason ||
+                      source.latest_error ||
+                      "Roadshow did not extract future events from the latest check; confirm the official source or rerun source operations.",
+                    officialUrl: source.official_url,
+                    actionLabel: source.action_label,
+                    actionHref: source.action_href,
+                    consequence: source.consequence,
+                    severity: source.needs_attention ? "blocked" : "warning",
+                  })
+                ) : source.official_url ? (
+                  <a className="fine-print" href={source.official_url} rel="noreferrer" target="_blank">
+                    Official source
+                  </a>
+                ) : null}
               </div>
             ))}
           </div>
         ) : (
-          <p className="fine-print">No reliability analytics yet. Record at least one source audit to start the trend line.</p>
+          <ActionNotice
+            severity="info"
+            title="No reliability analytics yet"
+            explanation="Roadshow needs at least one recorded source audit before it can show trend lines."
+            primaryAction={{
+              label: "Run source operations",
+              consequence: "Jumps to the controls that record the first data-source status check.",
+              href: "#source-operations",
+            }}
+          />
         )}
       </Panel>
 
@@ -135,7 +210,16 @@ export default async function SourceHealthPage() {
             ))}
           </div>
         ) : (
-          <p className="fine-print">No recorded audits yet. Use “Record source audit” to create the first history row for each source.</p>
+          <ActionNotice
+            severity="info"
+            title="No recorded audits yet"
+            explanation="Use the source operations controls to create the first audit row for each watched source."
+            primaryAction={{
+              label: "Run source operations",
+              consequence: "Jumps to the controls that record data-source status.",
+              href: "#source-operations",
+            }}
+          />
         )}
       </Panel>
 
@@ -154,7 +238,17 @@ export default async function SourceHealthPage() {
               </div>
             </div>
 
-            {source.error ? <p className="source-error">{source.error}</p> : null}
+            {source.error
+              ? sourceActionNotice({
+                  title: "Source fetch failed",
+                  explanation: source.error,
+                  officialUrl: source.official_url,
+                  actionLabel: source.action_label,
+                  actionHref: source.action_href,
+                  consequence: source.consequence,
+                  severity: "error",
+                })
+              : null}
 
             {source.samples.length > 0 ? (
               <div className="card-list">
@@ -165,7 +259,17 @@ export default async function SourceHealthPage() {
                 ))}
               </div>
             ) : (
-              <p className="fine-print">No extractable event samples were found in the current audit.</p>
+              sourceActionNotice({
+                title: source.needs_adapter ? "Extractor not production-ready" : "No event samples found",
+                explanation: source.needs_adapter
+                  ? "Official source is tracked, but Roadshow still needs a source-specific extractor before events can be ranked."
+                  : "No extractable event samples were found in the current audit; confirm the official page or rerun source operations.",
+                officialUrl: source.official_url,
+                actionLabel: source.action_label,
+                actionHref: source.action_href,
+                consequence: source.consequence,
+                severity: source.needs_adapter ? "warning" : "info",
+              })
             )}
           </Panel>
         ))}

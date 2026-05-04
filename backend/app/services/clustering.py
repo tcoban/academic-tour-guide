@@ -14,11 +14,14 @@ class TripClusterer:
         self.session = session
 
     def rebuild_all(self) -> list[TripCluster]:
-        researcher_ids = self.session.scalars(select(TalkEvent.researcher_id).distinct()).all()
+        researcher_ids = [researcher_id for researcher_id in self.session.scalars(select(TalkEvent.researcher_id).distinct()).all() if researcher_id]
+        if researcher_ids:
+            self.session.execute(delete(TripCluster).where(TripCluster.researcher_id.not_in(researcher_ids)))
+        else:
+            self.session.execute(delete(TripCluster))
         clusters: list[TripCluster] = []
         for researcher_id in researcher_ids:
-            if researcher_id:
-                clusters.extend(self.rebuild_for_researcher(researcher_id))
+            clusters.extend(self.rebuild_for_researcher(researcher_id))
         return clusters
 
     def rebuild_for_researcher(self, researcher_id: str) -> list[TripCluster]:
@@ -65,4 +68,3 @@ class TripClusterer:
             persisted.append(cluster)
         self.session.flush()
         return persisted
-

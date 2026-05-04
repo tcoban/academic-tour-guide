@@ -8,6 +8,7 @@ from app.services.availability import AvailabilityBuilder
 from app.services.clustering import TripClusterer
 from app.services.enrichment import BiographerPipeline
 from app.services.ingestion import IngestionService
+from app.services.operator import MorningSweepRunner
 from app.services.scoring import Scorer
 from app.services.seed import seed_demo_data, seed_reference_data
 
@@ -30,6 +31,8 @@ def run(command: str) -> None:
         seed_reference_data(session)
         if command == "ingest":
             IngestionService(session).ingest_sources()
+        elif command == "real-sync":
+            MorningSweepRunner(session).run()
         elif command == "sync-host":
             IngestionService(session).sync_host_calendar()
         elif command == "repec-sync":
@@ -51,7 +54,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Roadshow worker")
     parser.add_argument(
         "command",
-        choices=["ingest", "sync-host", "repec-sync", "biographer-refresh", "seed-demo", "rebuild", "audit-sources"],
+        choices=["ingest", "real-sync", "sync-host", "repec-sync", "biographer-refresh", "seed-demo", "rebuild", "audit-sources"],
     )
     args = parser.parse_args()
     run(args.command)

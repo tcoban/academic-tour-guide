@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import re
 from math import asin, cos, radians, sin, sqrt
 from zoneinfo import ZoneInfo
 
@@ -9,8 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.entities import Institution, OpenSeminarWindow, Researcher, TripCluster
+from app.models.entities import Institution, OpenSeminarWindow, Researcher, ResearcherIdentity, TripCluster
 from app.services.enrichment import best_available_fact
+from app.services.travel_planning import TravelPlanner
 
 
 DEFAULT_COORDINATES: dict[str, tuple[float, float]] = {
@@ -42,6 +44,88 @@ US_KEYWORDS = {
     "university of michigan",
     "usa",
     "united states",
+}
+
+KOF_RESEARCH_AREAS: dict[str, tuple[str, ...]] = {
+    "Business Tendency Surveys": (
+        "business tendency",
+        "survey",
+        "expectations",
+        "sentiment",
+        "leading indicator",
+        "indicator",
+    ),
+    "Macroeconomic Forecasting and Data Science": (
+        "macroeconomic",
+        "macroeconomics",
+        "macro",
+        "forecast",
+        "forecasting",
+        "nowcast",
+        "nowcasting",
+        "business cycle",
+        "inflation",
+        "monetary",
+        "time series",
+        "macroeconometric",
+        "data science",
+        "statistical model",
+    ),
+    "Innovation Economics": (
+        "innovation",
+        "productivity",
+        "technology",
+        "structural change",
+        "firm dynamics",
+        "firm-level",
+        "r&d",
+        "patent",
+        "digitalization",
+    ),
+    "Swiss Labour Market": (
+        "labour",
+        "labor",
+        "employment",
+        "unemployment",
+        "wage",
+        "wages",
+        "immigration",
+        "migration",
+        "discrimination",
+        "education gap",
+        "digital labour",
+        "digital labor",
+        "causal inference",
+        "machine learning",
+        "policy evaluation",
+    ),
+    "KOF Lab": (
+        "income",
+        "wealth",
+        "distribution",
+        "inequality",
+        "randomised controlled trial",
+        "randomized controlled trial",
+        "rct",
+        "social policy",
+        "long-term scenario",
+        "trade",
+        "data centre",
+        "data center",
+    ),
+    "Applied Macroeconomics": (
+        "political economy",
+        "international macro",
+        "international monetary",
+        "monetary economics",
+        "economic policy",
+        "policy",
+        "household",
+        "firm",
+        "corruption",
+        "business cycle",
+        "economic forecasting",
+    ),
 }
 
 
@@ -108,9 +192,20 @@ class Scorer:
             score += 10
             rationale.append({"label": "Travel Density", "points": 10, "detail": "Two or more appearances within 14 days"})
 
-        if self._has_slot_fit(cluster):
+        slot_fit = self._slot_fit_signal(cluster, researcher)
+        if slot_fit:
             score += 15
-            rationale.append({"label": "Slot Fit", "points": 15, "detail": "An open KOF slot overlaps the trip window"})
+            rationale.append({"label": "Slot Fit", "points": 15, "detail": slot_fit.detail})
+
+        research_fit = self._research_fit(cluster, researcher)
+        if research_fit.points > 0:
+            score += research_fit.points
+            rationale.append({"label": "KOF Research Fit", "points": research_fit.points, "detail": research_fit.detail})
+
+        superstar = self._superstar_priority(researcher)
+        if superstar.points > 0:
+            score += superstar.points
+            rationale.append({"label": "Superstar Priority", "points": superstar.points, "detail": superstar.detail})
 
         if uses_unreviewed_evidence:
             rationale.append(
@@ -161,24 +256,127 @@ class Scorer:
                     return True
         return False
 
-    def _has_slot_fit(self, cluster: TripCluster) -> bool:
+    def _slot_fit_signal(self, cluster: TripCluster, researcher: Researcher) -> "_FitSignal | None":
         cluster_start = ensure_timezone(datetime.combine(cluster.start_date, datetime.min.time(), tzinfo=starts_tz(cluster)))
         cluster_end = ensure_timezone(datetime.combine(cluster.end_date, datetime.max.time(), tzinfo=starts_tz(cluster)))
         windows = self.session.scalars(select(OpenSeminarWindow)).all()
+        planner = TravelPlanner()
+        best_detail = ""
+        best_score = -999
         for window in windows:
             window_start = ensure_timezone(window.starts_at)
             window_end = ensure_timezone(window.ends_at)
             if window_start <= cluster_end + timedelta(days=settings.slot_match_buffer_days) and window_end >= cluster_start - timedelta(
                 days=settings.slot_match_buffer_days
             ):
-                return True
-        return False
+                travel_fit = planner.assess_slot(cluster, researcher, window)
+                if travel_fit.score > best_score:
+                    best_score = travel_fit.score
+                    best_detail = travel_fit.summary
+        if best_score == -999:
+            return None
+        return _FitSignal(points=15, detail=best_detail or "An open KOF slot is close enough to the trip window.")
 
     def _fact_detail(self, fact) -> str:
         detail = fact.value
         if not fact.approved:
             detail += " (pending review)"
         return detail
+
+    def _research_fit(self, cluster: TripCluster, researcher: Researcher) -> "_FitSignal":
+        text = self._research_text(cluster, researcher)
+        if not text:
+            return _FitSignal(points=0, detail="")
+
+        matches_by_area: dict[str, list[str]] = {}
+        for area, terms in KOF_RESEARCH_AREAS.items():
+            matched_terms = [term for term in terms if _term_matches(text, term)]
+            if matched_terms:
+                matches_by_area[area] = matched_terms
+
+        if not matches_by_area:
+            return _FitSignal(points=0, detail="No deterministic KOF topic match found.")
+
+        unique_term_count = len({term for terms in matches_by_area.values() for term in terms})
+        points = min(15, 5 + unique_term_count * 2 + max(0, len(matches_by_area) - 1))
+        detail = "; ".join(
+            f"{area}: {', '.join(terms[:4])}"
+            for area, terms in sorted(matches_by_area.items(), key=lambda item: (-len(item[1]), item[0]))[:3]
+        )
+        return _FitSignal(points=points, detail=detail)
+
+    def _research_text(self, cluster: TripCluster, researcher: Researcher) -> str:
+        parts: list[str] = [researcher.name, researcher.home_institution or ""]
+        for item in cluster.itinerary:
+            parts.extend(
+                [
+                    str(item.get("title") or ""),
+                    str(item.get("city") or ""),
+                    str(item.get("source_name") or ""),
+                ]
+            )
+        if researcher.speaker_profile:
+            parts.extend(researcher.speaker_profile.topics or [])
+            parts.append(researcher.speaker_profile.availability_notes or "")
+        for fact in researcher.facts:
+            if fact.fact_type in {"research_topic", "field", "home_institution"}:
+                parts.append(fact.value)
+        return " ".join(part for part in parts if part).lower()
+
+    def _superstar_priority(self, researcher: Researcher) -> "_FitSignal":
+        rank = self._best_repec_rank(researcher)
+        percentile = self._best_repec_percentile(researcher)
+        if rank is not None:
+            if rank <= 25:
+                return _FitSignal(points=25, detail=f"RePEc worldwide rank #{rank}")
+            if rank <= 100:
+                return _FitSignal(points=18, detail=f"RePEc worldwide rank #{rank}")
+            if rank <= 200:
+                return _FitSignal(points=12, detail=f"RePEc worldwide rank #{rank}")
+        if percentile is None:
+            return _FitSignal(points=0, detail="")
+        if percentile <= 0.05:
+            return _FitSignal(points=25, detail=f"RePEc top {percentile:.3g}%")
+        if percentile <= 0.15:
+            return _FitSignal(points=18, detail=f"RePEc top {percentile:.3g}%")
+        if percentile <= 0.3:
+            return _FitSignal(points=12, detail=f"RePEc top {percentile:.3g}%")
+        if percentile <= 5:
+            return _FitSignal(points=6, detail=f"RePEc top {percentile:.3g}%")
+        return _FitSignal(points=0, detail="")
+
+    def _best_repec_rank(self, researcher: Researcher) -> int | None:
+        ranks: list[int] = []
+        for identity in self._repec_identities(researcher):
+            rank = (identity.metadata_json or {}).get("rank")
+            if isinstance(rank, int):
+                ranks.append(rank)
+            elif isinstance(rank, str) and rank.isdigit():
+                ranks.append(int(rank))
+        return min(ranks) if ranks else None
+
+    def _best_repec_percentile(self, researcher: Researcher) -> float | None:
+        percentiles = [researcher.repec_rank] if researcher.repec_rank is not None else []
+        percentiles.extend(
+            identity.ranking_percentile
+            for identity in self._repec_identities(researcher)
+            if identity.ranking_percentile is not None
+        )
+        return min(percentiles) if percentiles else None
+
+    def _repec_identities(self, researcher: Researcher) -> list[ResearcherIdentity]:
+        return [identity for identity in researcher.identities if identity.provider == "repec"]
+
+
+@dataclass(slots=True)
+class _FitSignal:
+    points: int
+    detail: str
+
+
+def _term_matches(text: str, term: str) -> bool:
+    escaped = re.escape(term.lower()).replace(r"\ ", r"\s+")
+    return bool(re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text))
 
 
 def starts_tz(cluster: TripCluster):

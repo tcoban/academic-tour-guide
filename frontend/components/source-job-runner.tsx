@@ -3,6 +3,8 @@
 import { useState } from "react";
 
 import { type IngestResponse, type SourceHealthRecord, runExternalIngest, runKofCalendarSync, runSourceAudit } from "@/lib/api";
+import { ActionNotice } from "@/components/action-notice";
+import { PurposeButton } from "@/components/purpose-button";
 
 type JobName = "external" | "kof" | "audit";
 
@@ -45,15 +47,32 @@ export function SourceJobRunner() {
 
   return (
     <div className="job-runner">
-      <button disabled={state.running !== null} onClick={() => run("kof")} type="button">
-        {state.running === "kof" ? "Syncing KOF..." : "Sync KOF calendar"}
-      </button>
-      <button className="ghost-button" disabled={state.running !== null} onClick={() => run("external")} type="button">
-        {state.running === "external" ? "Ingesting..." : "Run external ingest"}
-      </button>
-      <button className="ghost-button" disabled={state.running !== null} onClick={() => run("audit")} type="button">
-        {state.running === "audit" ? "Auditing..." : "Record source audit"}
-      </button>
+      <PurposeButton
+        disabledReason={state.running && state.running !== "kof" ? "Another sync job is already running." : null}
+        helperText="Refreshes occupied KOF events so open slots are not double-booked."
+        label="Sync KOF occupied calendar"
+        onClick={() => run("kof")}
+        pending={state.running === "kof"}
+        runningLabel="Syncing KOF calendar..."
+      />
+      <PurposeButton
+        className="ghost-button"
+        disabledReason={state.running && state.running !== "external" ? "Another sync job is already running." : null}
+        helperText="Fetches watched seminar hubs and clusters new European appearances."
+        label="Find new speaker visits"
+        onClick={() => run("external")}
+        pending={state.running === "external"}
+        runningLabel="Finding speaker visits..."
+      />
+      <PurposeButton
+        className="ghost-button"
+        disabledReason={state.running && state.running !== "audit" ? "Another sync job is already running." : null}
+        helperText="Records source reliability without changing opportunities."
+        label="Record data-source status"
+        onClick={() => run("audit")}
+        pending={state.running === "audit"}
+        runningLabel="Recording data-source status..."
+      />
 
       {state.result ? (
         <div className="job-result">
@@ -75,7 +94,35 @@ export function SourceJobRunner() {
         </div>
       ) : null}
 
-      {state.error ? <p className="source-error">{state.error}</p> : null}
+      {state.error ? (
+        <ActionNotice
+          severity="error"
+          title="Source operation failed"
+          explanation={state.error}
+          primaryAction={{
+            label: "Record data-source status",
+            consequence: "Retries the safest read-only audit and records which sources still fail.",
+          }}
+          primaryActionSlot={
+            <PurposeButton
+              className="ghost-button"
+              disabledReason={state.running && state.running !== "audit" ? "Another sync job is already running." : null}
+              helperText="Retries the read-only source audit so the failure is visible in Data Sources."
+              label="Record data-source status"
+              onClick={() => run("audit")}
+              pending={state.running === "audit"}
+              runningLabel="Recording data-source status..."
+            />
+          }
+          secondaryActions={[
+            {
+              label: "Inspect data sources",
+              consequence: "Shows the source-level status, official link, parser strategy, and latest error.",
+              href: "/source-health",
+            },
+          ]}
+        />
+      ) : null}
     </div>
   );
 }

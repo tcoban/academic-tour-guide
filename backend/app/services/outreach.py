@@ -16,22 +16,16 @@ class ReviewRequiredError(RuntimeError):
 
 
 TEMPLATES = {
-    "concierge": {
-        "label": "Concierge invitation",
-        "subject": "KOF Zurich invitation around your European visit",
-        "opening": "we noticed your European itinerary and thought KOF could be a natural Zurich stop during that window",
+    "kof_invitation": {
+        "label": "KOF invitation",
+        "subject": "KOF Zurich seminar invitation",
     },
-    "academic_home": {
-        "label": "Academic-home hook",
-        "subject": "A Zurich seminar stop while you are back near your academic home",
-        "opening": "your European seminar schedule seems like a timely moment to reconnect with the region through a KOF visit",
-    },
-    "cost_share": {
-        "label": "Cost-sharing angle",
-        "subject": "Coordinating a KOF Zurich stop with your European itinerary",
-        "opening": "we saw an opportunity to coordinate a Zurich seminar stop with travel that already brings you to Europe",
+    "multi_host_tour": {
+        "label": "Multi-host Roadshow tour",
+        "subject": "A coordinated European Roadshow tour around your visit",
     },
 }
+NORMAL_TEMPLATE_KEYS = {"kof_invitation", "concierge", "academic_home", "cost_share"}
 
 
 class DraftGenerator:
@@ -39,8 +33,15 @@ class DraftGenerator:
         self.session = session
         self.cost_sharing = CostSharingCalculator()
 
-    def generate(self, researcher: Researcher, cluster: TripCluster, template_key: str = "concierge") -> OutreachDraft:
-        template = TEMPLATES.get(template_key, TEMPLATES["concierge"])
+    def generate(
+        self,
+        researcher: Researcher,
+        cluster: TripCluster,
+        template_key: str = "kof_invitation",
+        tour_assembly_context: dict | None = None,
+    ) -> OutreachDraft:
+        resolved_template_key = self._resolve_template_key(template_key)
+        template = TEMPLATES[resolved_template_key]
         phd_fact = best_fact(researcher, "phd_institution")
         nationality_fact = best_fact(researcher, "nationality")
         if not phd_fact or phd_fact.confidence < settings.evidence_confidence_threshold:
@@ -62,20 +63,22 @@ class DraftGenerator:
                 "Draft generation requires an approved nationality fact before the biographic hook can be used."
             )
 
-        matching_window = self._best_window_for_cluster(cluster)
+        matching_slot = self._best_slot_for_cluster(cluster)
+        matching_window = matching_slot.window if matching_slot else None
         cost_share = self.cost_sharing.estimate(cluster, researcher, matching_window)
-        hook = self._build_hook(researcher, cluster, phd_fact.value, nationality_fact.value, template_key)
-        subject = template["subject"]
-        checklist = self._build_checklist(researcher, cluster, matching_window)
+        internal_rationale = self._internal_rationale(researcher, cluster, phd_fact.value, nationality_fact.value, resolved_template_key)
+        subject = self._subject_for_cluster(cluster, resolved_template_key, template["subject"])
+        checklist = self._build_checklist(researcher, cluster, matching_window, matching_slot.travel_fit if matching_slot else None)
         roadshow_context = self._roadshow_context(researcher)
         metadata = {
-            "template_key": template_key if template_key in TEMPLATES else "concierge",
+            "template_key": resolved_template_key,
+            "legacy_template_key": template_key if template_key != resolved_template_key else None,
             "template_label": template["label"],
             "used_facts": [
                 self._fact_metadata(phd_fact),
                 self._fact_metadata(nationality_fact),
             ],
-            "candidate_slot": self._slot_metadata(matching_window),
+            "candidate_slot": self._slot_metadata(matching_slot),
             "cost_share": cost_share,
             "send_brief": self._build_send_brief(
                 researcher=researcher,
@@ -86,21 +89,31 @@ class DraftGenerator:
                 cost_share=cost_share,
                 template_label=template["label"],
                 roadshow_context=roadshow_context,
+                tour_assembly_context=tour_assembly_context,
+                travel_fit=matching_slot.travel_fit if matching_slot else None,
             ),
             "itinerary": cluster.itinerary,
             "checklist": checklist,
             "roadshow_context": roadshow_context,
+            "operator_notes": self._operator_notes(
+                researcher=researcher,
+                cluster=cluster,
+                internal_rationale=internal_rationale,
+                matching_window=matching_window,
+                checklist=checklist,
+                roadshow_context=roadshow_context,
+                tour_assembly_context=tour_assembly_context,
+            ),
+            "internal_rationale": internal_rationale,
             "approved_fact_gate": True,
+            "tour_assembly_context": tour_assembly_context,
         }
-        body = self._build_body(
+        body = self._build_email_body(
             researcher=researcher,
             cluster=cluster,
-            hook=hook,
-            opening=template["opening"],
             matching_window=matching_window,
-            cost_share=cost_share,
-            checklist=checklist,
-            roadshow_context=roadshow_context,
+            template_key=resolved_template_key,
+            tour_assembly_context=tour_assembly_context,
         )
 
         draft = OutreachDraft(
@@ -115,82 +128,141 @@ class DraftGenerator:
         self.session.flush()
         return draft
 
-    def _best_window_for_cluster(self, cluster: TripCluster) -> OpenSeminarWindow | None:
-        match = OpportunityWorkbench(self.session).best_window_for_cluster(cluster)
-        return match.window if match else None
+    def _resolve_template_key(self, template_key: str) -> str:
+        if template_key == "multi_host_tour":
+            return "multi_host_tour"
+        if template_key in NORMAL_TEMPLATE_KEYS:
+            return "kof_invitation"
+        return "kof_invitation"
 
-    def _build_hook(self, researcher: Researcher, cluster: TripCluster, phd_institution: str, nationality: str, template_key: str) -> str:
-        hook_fragments = [f"Biographic hook: {researcher.name} earned their PhD at {phd_institution}."]
-        if nationality.lower() in {"german", "austrian", "swiss"} and researcher.home_institution:
-            hook_fragments.append(
-                f"They are currently based at {researcher.home_institution}, which strengthens the home-visit angle for a DACH trip."
-            )
-        if any(city["city"].lower() in {"milan", "munich"} for city in cluster.itinerary):
-            hook_fragments.append("The current itinerary already includes a Zurich-adjacent hub.")
-        if template_key == "cost_share":
-            hook_fragments.append("The message should emphasize coordination and cost-sharing rather than a standalone Zurich trip.")
-        if template_key == "academic_home":
-            hook_fragments.append("The message should lead with the academic-home connection before logistics.")
-        return " ".join(hook_fragments)
+    def _best_slot_for_cluster(self, cluster: TripCluster):
+        return OpportunityWorkbench(self.session).best_window_for_cluster(cluster)
 
-    def _build_body(
+    def _internal_rationale(
         self,
         researcher: Researcher,
         cluster: TripCluster,
-        hook: str,
-        opening: str,
+        phd_institution: str,
+        nationality: str,
+        template_key: str,
+    ) -> list[dict]:
+        rationale = [{"label": "Biographic hook", "detail": f"{researcher.name} earned their PhD at {phd_institution}."}]
+        if nationality.lower() in {"german", "austrian", "swiss"} and researcher.home_institution:
+            rationale.append(
+                {
+                    "label": "DACH/home-visit signal",
+                    "detail": f"Nationality evidence and current base at {researcher.home_institution} support a home-region visit hypothesis.",
+                }
+            )
+        if any(city["city"].lower() in {"milan", "munich"} for city in cluster.itinerary):
+            rationale.append({"label": "Zurich-adjacent itinerary", "detail": "The current itinerary includes Milan or Munich."})
+        if template_key == "multi_host_tour":
+            rationale.append({"label": "Tour assembly", "detail": "Frame the invitation as a coordinated multi-stop European itinerary."})
+        return rationale
+
+    def _operator_notes(
+        self,
+        researcher: Researcher,
+        cluster: TripCluster,
         matching_window: OpenSeminarWindow | None,
-        cost_share: dict | None,
         checklist: list[dict],
+        internal_rationale: list[dict],
         roadshow_context: dict,
-    ) -> str:
+        tour_assembly_context: dict | None = None,
+    ) -> list[dict]:
         itinerary_cities = ", ".join(item["city"] for item in cluster.itinerary) or "Europe"
+        notes = [
+            {"label": "Home institution", "detail": researcher.home_institution or "Unknown"},
+            {"label": "Opportunity score", "detail": str(cluster.opportunity_score)},
+            {"label": "Existing itinerary", "detail": itinerary_cities},
+            {"label": "Relationship memory", "detail": roadshow_context["relationship_summary"]},
+            {"label": "Preference/rider check", "detail": roadshow_context["preference_summary"]},
+        ]
+        notes.extend(internal_rationale)
+        if matching_window:
+            notes.append(
+                {
+                    "label": "Candidate KOF slot",
+                    "detail": f"{matching_window.starts_at.isoformat()} to {matching_window.ends_at.isoformat()}",
+                }
+            )
+        notes.extend({"label": f"Checklist: {item['label']}", "detail": item["status"]} for item in checklist)
+        if tour_assembly_context:
+            budget = tour_assembly_context.get("budget_summary") or {}
+            host_count = int(tour_assembly_context.get("host_count") or budget.get("host_count") or 0)
+            notes.append({"label": "Anonymous Roadshow assembly", "detail": f"{host_count} host stops modeled for internal review."})
+        return notes
+
+    def _build_email_body(
+        self,
+        researcher: Researcher,
+        cluster: TripCluster,
+        matching_window: OpenSeminarWindow | None,
+        template_key: str,
+        tour_assembly_context: dict | None = None,
+    ) -> str:
         last_name = researcher.name.split()[-1]
-        slot_sentence = (
-            f"We currently see a possible KOF slot on {matching_window.starts_at.strftime('%A, %d %B %Y at %H:%M')} Zurich time."
-            if matching_window
-            else "We can keep the date flexible around your European window."
-        )
-        cost_sentence = ""
-        if cost_share:
-            cost_sentence = (
-                f" Because Zurich appears to be a {cost_share['recommended_mode']} add-on from {cost_share['nearest_itinerary_city']}, "
-                f"the incremental travel estimate is CHF {cost_share['multi_city_incremental_chf']} rather than roughly "
-                f"CHF {cost_share['baseline_round_trip_chf']} for a standalone trip."
+        opening_sentence = self._opening_sentence(cluster, template_key)
+        slot_sentence = self._specific_slot_sentence(matching_window)
+        assembly_email = ""
+        if template_key == "multi_host_tour" and tour_assembly_context:
+            budget = tour_assembly_context.get("budget_summary") or {}
+            host_count = int(tour_assembly_context.get("host_count") or budget.get("host_count") or 0)
+            assembly_email = (
+                f"We are also reviewing whether this could fit into a compact multi-stop European tour with {host_count} seminar hosts. "
             )
 
         return (
-            "Dear KOF admin,\n\n"
-            f"{researcher.name} appears to be in Europe between {cluster.start_date.isoformat()} and {cluster.end_date.isoformat()}.\n"
-            f"{hook}\n\n"
-            "Admin notes:\n"
-            f"- Home institution: {researcher.home_institution or 'Unknown'}\n"
-            f"- Opportunity score: {cluster.opportunity_score}\n"
-            f"- Existing itinerary: {itinerary_cities}\n"
-            f"- Roadshow relationship memory: {roadshow_context['relationship_summary']}\n"
-            f"- Speaker preference/rider check: {roadshow_context['preference_summary']}\n"
-            + (
-                f"- Candidate KOF slot: {matching_window.starts_at.isoformat()} to {matching_window.ends_at.isoformat()}\n"
-                if matching_window
-                else ""
-            )
-            + (
-                f"- Cost-sharing estimate: CHF {cost_share['multi_city_incremental_chf']} Zurich add-on vs "
-                f"CHF {cost_share['baseline_round_trip_chf']} standalone round trip "
-                f"(CHF {cost_share['estimated_savings_chf']} estimated savings, {cost_share['roi_percent']}% ROI)\n"
-                if cost_share
-                else ""
-            )
-            + "\nPre-send checklist:\n"
-            + "\n".join(f"- {item['label']}: {item['status']}" for item in checklist)
-            + "\n\nSuggested email draft:\n"
             f"Dear Professor {last_name},\n\n"
-            f"I hope this finds you well. We noticed that {opening}. "
-            f"Given your connection to {itinerary_cities}, we wondered whether a KOF seminar visit in Zurich could fit naturally into the same trip. "
-            f"{slot_sentence}{cost_sentence}\n\n"
-            "If this is of interest, we would be delighted to explore a suitable seminar date and coordinate the logistics with your existing itinerary.\n\n"
-            "Warm regards,\n"
-            "KOF seminar team\n"
+            f"I hope this finds you well. {opening_sentence}\n\n"
+            f"{slot_sentence} {assembly_email}If this timing is feasible, we would be glad to coordinate the local arrangements for your Zurich visit.\n\n"
+            "With best regards,\n"
+            "The KOF seminar team\n"
+        )
+
+    def _subject_for_cluster(self, cluster: TripCluster, template_key: str, default_subject: str) -> str:
+        if template_key == "multi_host_tour":
+            return default_subject
+        cities = self._unique_itinerary_cities(cluster)
+        if len(cities) == 1:
+            return f"KOF Zurich seminar invitation around your {cities[0]} visit"
+        if len(cities) == 2:
+            return f"KOF Zurich seminar invitation around your {cities[0]} and {cities[1]} visits"
+        if len(cities) > 2:
+            return "KOF Zurich seminar invitation around your itinerary"
+        return default_subject
+
+    def _opening_sentence(self, cluster: TripCluster, template_key: str) -> str:
+        if template_key == "multi_host_tour":
+            return "We are preparing a compact seminar itinerary and would be very pleased to include a Zurich stop at KOF."
+        itinerary_phrase = self._itinerary_phrase(cluster)
+        return (
+            f"We saw {itinerary_phrase} and would be very pleased to invite you to give a research seminar "
+            "at KOF in Zurich around that trip."
+        )
+
+    def _itinerary_phrase(self, cluster: TripCluster) -> str:
+        unique_cities = self._unique_itinerary_cities(cluster)
+        if not unique_cities:
+            return "your planned seminar travel"
+        if len(unique_cities) == 1:
+            return f"your planned visit to {unique_cities[0]}"
+        if len(unique_cities) == 2:
+            return f"your planned visits to {unique_cities[0]} and {unique_cities[1]}"
+        return f"your planned visits to {', '.join(unique_cities[:-1])}, and {unique_cities[-1]}"
+
+    def _unique_itinerary_cities(self, cluster: TripCluster) -> list[str]:
+        cities = [str(item.get("city") or "").strip() for item in cluster.itinerary if item.get("city")]
+        return list(dict.fromkeys(city for city in cities if city))
+
+    def _specific_slot_sentence(self, matching_window: OpenSeminarWindow | None) -> str:
+        if not matching_window:
+            return "We do not yet have a specific open KOF slot attached, so this draft should not be sent before the calendar is confirmed."
+        start = matching_window.starts_at
+        end = matching_window.ends_at
+        return (
+            f"The slot we have in mind is {start.strftime('%A, %d %B %Y, %H:%M')}"
+            f"-{end.strftime('%H:%M')} Zurich time."
         )
 
     def _fact_metadata(self, fact) -> dict:
@@ -205,15 +277,23 @@ class DraftGenerator:
             "approved_at": fact.approved_at.isoformat() if fact.approved_at else None,
         }
 
-    def _slot_metadata(self, window: OpenSeminarWindow | None) -> dict | None:
-        if not window:
+    def _slot_metadata(self, slot_match) -> dict | None:
+        if not slot_match:
             return None
+        window = slot_match.window
         return {
             "id": window.id,
             "starts_at": window.starts_at.isoformat(),
             "ends_at": window.ends_at.isoformat(),
             "source": window.source,
             "metadata_json": window.metadata_json,
+            "fit_type": slot_match.fit_type,
+            "travel_fit_score": slot_match.travel_fit_score,
+            "travel_fit_label": slot_match.travel_fit_label,
+            "travel_fit_summary": slot_match.travel_fit_summary,
+            "travel_fit_severity": slot_match.travel_fit_severity,
+            "planning_warnings": slot_match.planning_warnings,
+            "travel_fit": slot_match.travel_fit,
         }
 
     def _build_send_brief(
@@ -226,6 +306,8 @@ class DraftGenerator:
         cost_share: dict | None,
         template_label: str,
         roadshow_context: dict,
+        tour_assembly_context: dict | None = None,
+        travel_fit: dict | None = None,
     ) -> list[dict]:
         brief = [
             {
@@ -242,7 +324,7 @@ class DraftGenerator:
             },
             {
                 "label": "Suggested ask",
-                "detail": "Invite for a KOF seminar stop, but keep wording conditional pending admin schedule confirmation.",
+                "detail": "Invite for the specific KOF slot attached to this draft; do not imply the date is still open-ended.",
             },
             {
                 "label": "Relationship memory",
@@ -260,14 +342,32 @@ class DraftGenerator:
                     "detail": f"{matching_window.starts_at.isoformat()} to {matching_window.ends_at.isoformat()}",
                 }
             )
+        if travel_fit:
+            brief.append(
+                {
+                    "label": "Planner route check",
+                    "detail": travel_fit.get("summary") or "Route fit needs review.",
+                }
+            )
         if cost_share:
             brief.append(
                 {
-                    "label": "Logistics angle",
+                    "label": "Internal logistics note",
                     "detail": (
                         f"Zurich add-on estimate is CHF {cost_share['multi_city_incremental_chf']} vs "
                         f"CHF {cost_share['baseline_round_trip_chf']} standalone, with CHF "
-                        f"{cost_share['estimated_savings_chf']} estimated savings."
+                        f"{cost_share['estimated_savings_chf']} estimated savings. Keep this internal; do not mention costs in the invitation."
+                    ),
+                }
+            )
+        if tour_assembly_context:
+            budget = tour_assembly_context.get("budget_summary") or {}
+            brief.append(
+                {
+                    "label": "Anonymous tour assembly",
+                    "detail": (
+                        f"{tour_assembly_context.get('host_count') or budget.get('host_count')} modeled host stops with "
+                        f"CHF {budget.get('per_host_travel_share_chf', 'n/a')} per-host travel share."
                     ),
                 }
             )
@@ -310,8 +410,14 @@ class DraftGenerator:
             "preference_summary": preference_summary,
         }
 
-    def _build_checklist(self, researcher: Researcher, cluster: TripCluster, matching_window: OpenSeminarWindow | None) -> list[dict]:
-        return [
+    def _build_checklist(
+        self,
+        researcher: Researcher,
+        cluster: TripCluster,
+        matching_window: OpenSeminarWindow | None,
+        travel_fit: dict | None = None,
+    ) -> list[dict]:
+        checklist = [
             {
                 "label": "Approved PhD hook evidence",
                 "status": "ready",
@@ -333,8 +439,14 @@ class DraftGenerator:
                 "detail": ", ".join(item["city"] for item in cluster.itinerary) or "No itinerary cities found.",
             },
             {
+                "label": "Travel-rest sanity check",
+                "status": "needs_review" if travel_fit and travel_fit.get("severity") == "risky" else "ready",
+                "detail": (travel_fit or {}).get("summary") or "No route warning attached.",
+            },
+            {
                 "label": "Recipient/name sanity check",
                 "status": "needs_review",
                 "detail": f"Confirm salutation and current institution for {researcher.name}.",
             },
         ]
+        return checklist

@@ -11,14 +11,14 @@ Roadshow is a KOF-first academic tour concierge for identifying high-value visit
 
 - PostgreSQL-ready SQLAlchemy schema with a SQLite fallback for local development.
 - Alembic baseline migration for repeatable PostgreSQL or SQLite schema setup.
-- Rules-first source adapters for Bocconi, Mannheim, Bonn, ECB, BIS, and KOF.
+- Rules-first source adapters for Bocconi, Mannheim, Bonn, BIS, and KOF, plus a source registry for ECB, LSE, PSE, Oxford, TSE, LMU Munich, Goethe Frankfurt, UZH, ETH, SNB, Bank of England, BSE, Carlos III Madrid, and EUI.
 - KOF host-calendar sync reads the ETH public calendar JSON feed discovered from the KOF event page and stores those entries as occupied slots.
 - BIS adapter reads a public call-for-papers PDF and extracts named academic keynote speakers as Basel opportunity signals.
 - RePEc/IDEAS identity sync with persistent external researcher identities.
 - Institution-linked document discovery for seminar pages, RePEc profiles, public profile pages, CVs, and PDFs.
 - Evidence-backed enrichment with pending fact candidates, approved facts, source documents, and review history.
 - Availability engine that derives open seminar windows from recurring templates minus KOF occupied events and manual overrides.
-- Cost-sharing calculator that compares a standalone Zurich round trip with a Zurich add-on from the existing European itinerary.
+- Cost-sharing and rail-price checker for internal first-class/full-fare planning, with auditable live/cached/fallback fare provenance.
 - Roadshow models for speaker profiles, institution profiles, wishlist entries, wishlist alerts, tour legs, tour stops, relationship briefs, feedback signals, and audit events.
 - Negotiator-lite service that proposes deterministic KOF tour legs without contracts, payment, or live travel booking.
 - Opportunity scoring tuned to Zurich-specific alumni and DACH travel patterns, with explicit flags when a score uses unreviewed evidence.
@@ -40,7 +40,7 @@ Roadshow is a KOF-first academic tour concierge for identifying high-value visit
 - Opportunity workbench for ranking trip clusters, inspecting best KOF slot fit, and seeing whether outreach is draft-ready.
 - Cost-sharing estimates on opportunity cards and draft previews.
 - Draft library for browsing generated outreach variants, filtering by lifecycle status, and reopening provenance-backed draft previews.
-- Source health page for checking live scraper output, recording audit history, spotting zero-event sources, and surfacing reliability trends.
+- Data Sources page for checking live scraper output, recording audit history, spotting zero-event sources, and surfacing reliability trends.
 - Outreach draft preview for KOF admins with template selection, approved-fact provenance, send brief, checklist-gated lifecycle status actions, copy, and text export.
 - Optional Basic Auth protection for the frontend and API token protection for the backend.
 
@@ -56,13 +56,16 @@ Roadshow is a KOF-first academic tour concierge for identifying high-value visit
 ### Frontend
 
 1. Install dependencies from `frontend/package.json`.
-2. Set `NEXT_PUBLIC_API_BASE_URL` to the backend URL if it differs from `http://localhost:8000`.
+2. Set `NEXT_PUBLIC_API_BASE_URL` to the backend URL if it differs from `http://127.0.0.1:8000`.
 3. Run `npm run dev` from `frontend/`.
 
 ## Production Readiness
 
-- Set `ROADSHOW_APP_PASSWORD` to protect the frontend with Basic Auth. `ATG_APP_PASSWORD` remains supported for backwards compatibility.
-- Set `ROADSHOW_API_ACCESS_TOKEN` and matching `NEXT_PUBLIC_ROADSHOW_API_ACCESS_TOKEN` to require an API token on backend calls. The older `ATG_*` names remain supported locally.
+- Set `ROADSHOW_ENV=production` for the internal protected pilot.
+- Production mode requires `ROADSHOW_APP_PASSWORD` for frontend Basic Auth and `ROADSHOW_API_ACCESS_TOKEN` with matching `NEXT_PUBLIC_ROADSHOW_API_ACCESS_TOKEN` for backend API calls.
+- The older `ATG_*` names remain supported for transition environments.
+- Keep `ROADSHOW_ENABLE_DEMO_TOOLS=false` in production. The API seed endpoint is unavailable unless this flag is explicitly enabled.
+- Rail planning defaults to `ROADSHOW_RAIL_CLASS=first` and `ROADSHOW_RAIL_FARE_POLICY=full_fare`; configure `OPENTRANSPORTDATA_API_TOKEN` or Rail Europe ERA credentials for authorized live fare providers.
 - GitHub Actions CI runs backend tests and the frontend production build on pushes and pull requests.
 - The scheduled worker workflow runs `audit-sources` on weekday mornings and can run other worker commands manually.
 
@@ -71,40 +74,43 @@ Roadshow is a KOF-first academic tour concierge for identifying high-value visit
 From `backend/`:
 
 - `python -m app.worker ingest`
+- `python -m app.worker real-sync`
 - `python -m app.worker sync-host`
 - `python -m app.worker repec-sync`
 - `python -m app.worker biographer-refresh`
-- `python -m app.worker seed-demo`
+- `python -m app.worker seed-demo` (development only)
 - `python -m app.worker rebuild`
 - `python -m app.worker audit-sources`
 
 `audit-sources` records the current source-health snapshot in the local database and prints the same summary to the terminal.
 
-## Demo Data
+## Development-Only Seed Data
 
-For a local pilot demo, run:
+For parser tests, screenshots, or offline workflow checks, enable development seed tooling and run:
 
 ```bash
 python -m alembic upgrade head
+set ROADSHOW_ENABLE_DEMO_TOOLS=true
 python -m app.worker seed-demo
 ```
 
-This creates a small deterministic dataset with approved facts, pending fact candidates, source documents, RePEc identities, trip clusters, KOF seminar availability, a Roadshow wishlist entry, relationship memory, and one proposed tour leg.
+This creates a small deterministic dataset with approved facts, pending fact candidates, source documents, RePEc identities, trip clusters, KOF seminar availability, a Roadshow wishlist entry, relationship memory, and one proposed tour leg. It is not part of normal operation.
 
 If your local `backend/academic_tour_guide.db` was created before migrations were added, move it aside first and rerun the two commands above. The SQLite database is local-only and ignored by Git.
 
 ## Phase 2 Biographer Flow
 
-1. Run `python -m app.worker ingest` to collect external speaker appearances.
-2. Run `python -m app.worker biographer-refresh` to sync RePEc identities, fetch institution-linked documents, and extract fact candidates.
-3. Open the frontend review queue at `/review` and approve or reject pending evidence.
-4. Generate outreach drafts only after the required PhD institution and nationality facts are approved.
+1. Run `python -m app.worker audit-sources` or the Start-page real source sync to check the expanded watchlist and record source status.
+2. Run `python -m app.worker ingest` to collect external speaker appearances from production-ready adapters.
+3. Run `python -m app.worker biographer-refresh` to sync RePEc identities, fetch institution-linked documents, and extract fact candidates.
+4. Open the frontend review queue at `/review` and approve or reject pending evidence.
+5. Generate outreach drafts only after the required PhD institution and nationality facts are approved.
 
 Useful API endpoints:
 
 - `POST /api/jobs/repec-sync`
 - `POST /api/jobs/biographer-refresh`
-- `POST /api/jobs/seed-demo`
+- `POST /api/jobs/seed-demo` (development only, behind `ROADSHOW_ENABLE_DEMO_TOOLS=true`)
 - `GET /api/review/facts`
 - `POST /api/review/facts/{id}/approve`
 - `POST /api/review/facts/{id}/reject`

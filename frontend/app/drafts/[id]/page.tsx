@@ -1,13 +1,24 @@
 import Link from "next/link";
 
+import { ActionNotice } from "@/components/action-notice";
 import { DraftClipboardActions } from "@/components/draft-clipboard-actions";
 import { DraftStatusActions } from "@/components/draft-status-actions";
 import { Panel } from "@/components/panel";
 import { getDraft } from "@/lib/api";
 
+export const dynamic = "force-dynamic";
+
 type DraftPageProps = {
   params: Promise<{ id: string }>;
 };
+
+function suggestedEmailBody(body: string): string {
+  return body.includes("Suggested email draft:") ? body.split("Suggested email draft:", 2)[1].trim() : body;
+}
+
+function displayTemplateLabel(metadata: { template_label?: string; template_key?: string }): string {
+  return metadata.template_key === "multi_host_tour" ? metadata.template_label ?? "Multi-host Roadshow tour" : "KOF invitation";
+}
 
 export default async function DraftPage({ params }: DraftPageProps) {
   const { id } = await params;
@@ -18,27 +29,52 @@ export default async function DraftPage({ params }: DraftPageProps) {
   const costShare = draft.metadata_json.cost_share;
   const sendBrief = draft.metadata_json.send_brief ?? [];
   const statusHistory = draft.metadata_json.status_history ?? [];
+  const emailBody = suggestedEmailBody(draft.body);
+  const templateLabel = displayTemplateLabel(draft.metadata_json);
 
   return (
     <div className="stack">
       <Panel
         title={draft.subject}
-        copy={`Generated ${new Date(draft.created_at).toLocaleString()} with ${draft.metadata_json.template_label ?? "Outreach template"}`}
+        copy={`Generated ${new Date(draft.created_at).toLocaleString()} with ${templateLabel}`}
         rightSlot={<Link className="ghost-button" href="/opportunities">Back to opportunities</Link>}
       >
         <div className="stack">
           <div className="panel-header">
             <span className={`status-pill ${draft.status === "blocked" ? "blocked" : ""}`}>{draft.status}</span>
-            <DraftClipboardActions subject={draft.subject} body={draft.body} />
+            <DraftClipboardActions subject={draft.subject} body={emailBody} />
           </div>
-          <DraftStatusActions checklist={checklist} currentStatus={draft.status} draftId={draft.id} />
-          {draft.blocked_reason ? <p className="fine-print">{draft.blocked_reason}</p> : null}
-          <textarea readOnly value={draft.body} />
+          <div id="draft-status-actions">
+            <DraftStatusActions checklist={checklist} currentStatus={draft.status} draftId={draft.id} />
+          </div>
+          {draft.blocked_reason ? (
+            <ActionNotice
+              severity="blocked"
+              title="Draft cannot move forward yet"
+              explanation={draft.blocked_reason}
+              primaryAction={{
+                label: "Approve evidence for outreach",
+                consequence: "Opens the evidence queue filtered to this speaker so missing approved facts can be cleared.",
+                href: `/review?status=pending&researcher_id=${draft.researcher_id}`,
+              }}
+              secondaryActions={[
+                {
+                  label: "Search trusted evidence",
+                  consequence: "Opens the speaker dossier where Roadshow can search trusted sources or add an approved fact.",
+                  href: `/researchers/${draft.researcher_id}#manual-facts`,
+                },
+              ]}
+            />
+          ) : null}
         </div>
       </Panel>
 
+      <Panel title="Suggested email" copy="This is the invitation text to review and send manually outside Roadshow. Internal notes are separated below.">
+        <textarea readOnly value={emailBody} />
+      </Panel>
+
       {sendBrief.length > 0 ? (
-        <Panel title="Admin send brief" copy="Concise operator notes for turning this draft into a KOF-ready invitation.">
+        <Panel title="Internal send brief" copy="Concise operator notes for turning this draft into a KOF-ready invitation. Do not paste these into the email.">
           <div className="card-list">
             {sendBrief.map((item) => (
               <div className="list-card" key={item.label}>
@@ -82,6 +118,18 @@ export default async function DraftPage({ params }: DraftPageProps) {
                   <span className={`status-pill ${item.status === "needs_review" ? "warning" : ""}`}>{item.status}</span>
                 </div>
                 <p className="fine-print">{item.detail}</p>
+                {item.status === "needs_review" ? (
+                  <ActionNotice
+                    severity="warning"
+                    title={`${item.label} needs confirmation`}
+                    explanation="Confirm this checklist item before moving the draft to reviewed."
+                    primaryAction={{
+                      label: "Confirm draft checklist",
+                      consequence: "Jumps to the checklist controls at the top of this draft.",
+                      href: "#draft-status-actions",
+                    }}
+                  />
+                ) : null}
               </div>
             ))}
           </div>
@@ -99,7 +147,7 @@ export default async function DraftPage({ params }: DraftPageProps) {
       ) : null}
 
       {costShare ? (
-        <Panel title="Cost-sharing estimate" copy="Screening estimate comparing standalone Zurich travel with a Zurich add-on.">
+        <Panel title="Internal logistics note" copy="Screening estimate for KOF planning only; it is not part of the invitation email.">
           <div className="list-card">
             <div className="panel-header">
               <div>

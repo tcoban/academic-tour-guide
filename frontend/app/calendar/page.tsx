@@ -1,7 +1,11 @@
 import Link from "next/link";
 
+import { ActionNotice } from "@/components/action-notice";
+import { MorningSweepButton } from "@/components/morning-sweep-button";
 import { Panel } from "@/components/panel";
 import { getCalendarOverlay, getOpportunityWorkbench, type HostCalendarEvent, type OpenSeminarWindow, type OpportunityCard } from "@/lib/api";
+
+export const dynamic = "force-dynamic";
 
 type CalendarDay = {
   key: string;
@@ -32,6 +36,52 @@ function formatDateLabel(key: string): string {
 
 function formatWeekday(key: string): string {
   return new Date(`${key}T12:00:00`).toLocaleDateString([], { weekday: "short" });
+}
+
+function CalendarLoadError({ message }: { message: string }) {
+  return (
+    <div className="stack">
+      <section className="hero single-hero">
+        <div className="hero-card">
+          <span className="eyebrow">Calendar needs attention</span>
+          <h1 className="hero-title">Roadshow could not load the calendar overlay.</h1>
+          <p className="hero-copy">
+            Page loads are read-only now, so this usually means the API returned an operational error rather than a rebuild problem.
+            Run real source sync from Start, then reload the calendar.
+          </p>
+          <ActionNotice
+            severity="error"
+            title="Calendar overlay failed"
+            explanation={message}
+            primaryAction={{
+              label: "Run real source sync",
+              consequence: "Rebuilds availability through the explicit operations path, then the calendar can be reloaded.",
+            }}
+            primaryActionSlot={
+              <MorningSweepButton helperText="Rebuilds availability through the explicit operations path, then the calendar can be reloaded." />
+            }
+            secondaryActions={[
+              {
+                label: "Inspect KOF slot templates",
+                consequence: "Opens the settings page where missing or conflicting slot templates can be corrected.",
+                href: "/seminar-admin",
+              },
+            ]}
+          />
+        </div>
+      </section>
+      <Panel title="Safe next step" copy="Real source sync rebuilds availability through the explicit operations path.">
+        <div className="template-actions">
+          <Link className="ghost-button" href="/">
+            Return to Start
+          </Link>
+          <Link className="ghost-button" href="/seminar-admin">
+            Inspect slot templates
+          </Link>
+        </div>
+      </Panel>
+    </div>
+  );
 }
 
 function buildCalendarDays(
@@ -80,11 +130,19 @@ function buildCalendarDays(
 }
 
 export default async function CalendarPage() {
-  const [overlay, workbench] = await Promise.all([getCalendarOverlay(), getOpportunityWorkbench()]);
+  let overlay: Awaited<ReturnType<typeof getCalendarOverlay>>;
+  let workbench: Awaited<ReturnType<typeof getOpportunityWorkbench>>;
+  try {
+    [overlay, workbench] = await Promise.all([getCalendarOverlay(), getOpportunityWorkbench()]);
+  } catch (error) {
+    return <CalendarLoadError message={error instanceof Error ? error.message : "Calendar overlay failed to load."} />;
+  }
   const calendarDays = buildCalendarDays(overlay.host_events, overlay.open_windows, workbench.opportunities);
+  const now = Date.now();
+  const futureOpenWindows = overlay.open_windows.filter((window) => new Date(window.starts_at).getTime() >= now);
   const scoringSlotFits = workbench.opportunities.filter((opportunity) => opportunity.best_window?.within_scoring_window).length;
   const draftReadyWithSlot = workbench.opportunities.filter((opportunity) => opportunity.draft_ready && opportunity.best_window).length;
-  const nextOpenWindow = overlay.open_windows[0];
+  const nextOpenWindow = futureOpenWindows[0] ?? overlay.open_windows[0];
 
   return (
     <div className="stack">
@@ -98,8 +156,8 @@ export default async function CalendarPage() {
           </p>
           <div className="kpi-grid">
             <div className="metric">
-              <div className="metric-value">{overlay.open_windows.length}</div>
-              <div className="metric-label">Open KOF windows</div>
+              <div className="metric-value">{futureOpenWindows.length}</div>
+              <div className="metric-label">Future KOF windows</div>
             </div>
             <div className="metric">
               <div className="metric-value">{overlay.host_events.length}</div>
@@ -121,12 +179,31 @@ export default async function CalendarPage() {
               <h3>{nextOpenWindow ? new Date(nextOpenWindow.starts_at).toLocaleString() : "No open slots"}</h3>
               <p className="muted">Next derived KOF seminar window.</p>
             </div>
+            {!nextOpenWindow ? (
+              <ActionNotice
+                severity="blocked"
+                title="No open KOF windows"
+                explanation="The calendar cannot surface invitation dates until a recurring slot or manual opening produces capacity."
+                primaryAction={{
+                  label: "Set weekly KOF slot",
+                  consequence: "Opens KOF slot settings so you can create the recurring seminar pattern.",
+                  href: "/seminar-admin",
+                }}
+                secondaryActions={[
+                  {
+                    label: "Run real source sync",
+                    consequence: "Refreshes KOF occupied events and rebuilds derived availability.",
+                    href: "/",
+                  },
+                ]}
+              />
+            ) : null}
             <div className="template-actions">
               <Link className="ghost-button" href="/seminar-admin">
-                Manage slots
+                Manage KOF slot templates
               </Link>
               <Link className="ghost-button" href="/opportunities">
-                Rank opportunities
+                Inspect matched opportunities
               </Link>
             </div>
           </div>

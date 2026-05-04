@@ -3,6 +3,5 @@ type ScoreBadgeProps = {
 };
 
 export function ScoreBadge({ score }: ScoreBadgeProps) {
-  return <span className="score-badge">Opportunity {score}/100</span>;
+  return <span className="score-badge">Priority {score}</span>;
 }
-

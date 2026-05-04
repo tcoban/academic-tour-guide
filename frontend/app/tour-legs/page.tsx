@@ -1,10 +1,17 @@
 import Link from "next/link";
 
+import { ActionNotice } from "@/components/action-notice";
 import { Panel } from "@/components/panel";
 import { getTourLegs } from "@/lib/api";
 
+export const dynamic = "force-dynamic";
+
 function asMoney(value: number): string {
   return `CHF ${value.toLocaleString()}`;
+}
+
+function honorariumLabel(value: number): string {
+  return value > 0 ? asMoney(value) : "Not assumed";
 }
 
 export default async function TourLegsPage() {
@@ -36,9 +43,9 @@ export default async function TourLegsPage() {
             </div>
           </div>
         </div>
-        <Panel title="How to create one" copy="Open Opportunities and click Propose tour leg on a shortlisted cluster.">
+        <Panel title="How to create one" copy="Use Opportunities and click Add KOF as a tour stop on a shortlisted cluster.">
           <Link className="ghost-button" href="/opportunities">
-            Open opportunities
+            Inspect opportunity workbench
           </Link>
         </Panel>
       </section>
@@ -58,21 +65,30 @@ export default async function TourLegsPage() {
                   <span className="status-pill">{leg.status}</span>
                 </div>
                 <div className="timeline-strip">
-                  <span className="timeline-chip">Fees {asMoney(leg.estimated_fee_total_chf)}</span>
+                  <span className="timeline-chip">Honorarium {honorariumLabel(leg.estimated_fee_total_chf)}</span>
                   <span className="timeline-chip">Travel {asMoney(leg.estimated_travel_total_chf)}</span>
                   <span className="timeline-chip">
-                    Share {asMoney(Number(leg.cost_split_json.per_stop_travel_share_chf ?? 0))}
+                    KOF share {asMoney(Number(leg.cost_split_json.kof_total_chf ?? leg.cost_split_json.per_stop_travel_share_chf ?? 0))}
                   </span>
                 </div>
                 <div className="template-actions">
                   <Link className="ghost-button" href={`/tour-legs/${leg.id}`}>
-                    Open leg
+                    Inspect tour-leg proposal
                   </Link>
                 </div>
               </div>
             ))
           ) : (
-            <p className="fine-print">No Roadshow tour legs have been proposed yet.</p>
+            <ActionNotice
+              severity="info"
+              title="No Roadshow tour legs yet"
+              explanation="Create the first route and cost review from a ranked opportunity."
+              primaryAction={{
+                label: "Inspect opportunity workbench",
+                consequence: "Shows shortlisted speaker visits where KOF can be added as a tour stop.",
+                href: "/opportunities",
+              }}
+            />
           )}
         </div>
       </Panel>

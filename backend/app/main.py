@@ -14,6 +14,7 @@ from app.services.seed import seed_reference_data
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    settings.ensure_production_ready()
     init_db()
     with SessionLocal() as session:
         seed_reference_data(session)

@@ -12,6 +12,7 @@ from app.scraping.sources import (
     BisPdfConferenceSource,
     GenericEventSource,
     KofHostCalendarAdapter,
+    source_registry_by_name,
 )
 
 
@@ -82,6 +83,94 @@ def test_mannheim_current_table_parser_extracts_rows() -> None:
     assert events[0].starts_at.isoformat().startswith("2026-04-29T00:00:00")
 
 
+def test_mannheim_parser_repairs_joint_labels_split_affiliations_and_cancelled_names() -> None:
+    adapter = GenericEventSource(MANNHEIM_SOURCE)
+    events = adapter.extract(
+        RawPage(
+            url="https://www.vwl.uni-mannheim.de/forschung/forschungsseminare/mannheim-applied-seminar/",
+            html="""
+            <table>
+              <tr><th>Date/ Time</th><th>Location</th><th>Name</th><th>Title</th></tr>
+              <tr>
+                <td>29.04.2026</td><td>ZEW, Room Medienraum</td>
+                <td>Joint AEE/ ZEW Seminar Christian Moser (Columbia Business School, NY)</td>
+                <td>Entrepreneurship and Aggregate Productivity</td>
+              </tr>
+              <tr>
+                <td>06.05.2026</td><td>University of Mannheim</td>
+                <td>cancelled - Fabrizio Zilibotti, Yale University</td>
+                <td>CANCELLED</td>
+              </tr>
+              <tr>
+                <td>13.05.2026</td><td>University of Mannheim</td>
+                <td>Anna Aizer Brown University)</td>
+                <td>Family Spillovers</td>
+              </tr>
+            </table>
+            """,
+        )
+    )
+
+    assert [event.speaker_name for event in events] == ["Christian Moser", "Fabrizio Zilibotti", "Anna Aizer"]
+    assert events[0].speaker_affiliation == "Columbia Business School, NY"
+    assert events[1].speaker_affiliation == "Yale University"
+    assert events[2].speaker_affiliation == "Brown University"
+    assert all("(" not in event.speaker_name and ")" not in event.speaker_name for event in events)
+    assert all("cancel" not in event.speaker_name.lower() for event in events)
+
+
+def test_parser_splits_multiple_speakers_without_treating_affiliation_commas_as_people() -> None:
+    adapter = GenericEventSource(MANNHEIM_SOURCE)
+    events = adapter.extract(
+        RawPage(
+            url="https://www.vwl.uni-mannheim.de/forschung/forschungsseminare/mannheim-applied-seminar/",
+            html="""
+            <table>
+              <tr><th>Date/ Time</th><th>Location</th><th>Name</th><th>Title</th></tr>
+              <tr>
+                <td>29.04.2026</td><td>University of Mannheim</td>
+                <td>Melina Cosentino, Philipp Hamelmann</td>
+                <td>Eliciting information from multiple experts via grouping</td>
+              </tr>
+              <tr>
+                <td>06.05.2026</td><td>University of Mannheim</td>
+                <td>Wenjun Zheng and Stylianos Fragkiskos Skavdis</td>
+                <td>Robust Optimal Insurance under Moral Hazard</td>
+              </tr>
+              <tr>
+                <td>13.05.2026</td><td>University of Mannheim</td>
+                <td>Marco Caliendo, Universitaet Potsdam</td>
+                <td>Compensating Wage Differentials</td>
+              </tr>
+              <tr>
+                <td>20.05.2026</td><td>University of Mannheim</td>
+                <td>Laura Alfaro, Harvard</td>
+                <td>Global Supply Chains</td>
+              </tr>
+              <tr>
+                <td>27.05.2026</td><td>University of Mannheim</td>
+                <td>Uwe Sunde, LMU, Munich</td>
+                <td>Labor Markets and Demographics</td>
+              </tr>
+            </table>
+            """,
+        )
+    )
+
+    assert [event.speaker_name for event in events] == [
+        "Melina Cosentino",
+        "Philipp Hamelmann",
+        "Wenjun Zheng",
+        "Stylianos Fragkiskos Skavdis",
+        "Marco Caliendo",
+        "Laura Alfaro",
+        "Uwe Sunde",
+    ]
+    assert events[-3].speaker_affiliation == "Universitaet Potsdam"
+    assert events[-2].speaker_affiliation == "Harvard"
+    assert events[-1].speaker_affiliation == "LMU, Munich"
+
+
 def test_bonn_parser_extracts_event() -> None:
     adapter = GenericEventSource(BONN_SOURCE)
     events = adapter.extract(RawPage(url="https://www.econ.uni-bonn.de/events", html=fixture_text("bonn.html")))
@@ -120,6 +209,14 @@ def test_ecb_parser_extracts_event() -> None:
     assert len(events) == 1
     assert events[0].speaker_name == "Prof. Carla Example"
     assert events[0].city == "Frankfurt"
+
+
+def test_expanded_watchlist_sources_are_registered() -> None:
+    registry = source_registry_by_name()
+    for name in ["lse", "pse", "oxford", "tse", "lmu_munich", "goethe_frankfurt", "uzh", "eth", "snb", "bank_of_england", "bse_barcelona", "carlos_iii_madrid", "eui"]:
+        assert name in registry
+        assert registry[name].official_url.startswith("https://")
+        assert registry[name].needs_adapter is True
 
 
 def test_bis_parser_extracts_event() -> None:

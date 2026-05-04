@@ -177,6 +177,12 @@ class MatchedOpenWindowRead(OpenSeminarWindowRead):
     fit_type: str
     distance_days: int
     within_scoring_window: bool
+    travel_fit_score: int = 0
+    travel_fit_label: str | None = None
+    travel_fit_summary: str | None = None
+    travel_fit_severity: str = "review"
+    planning_warnings: list[str] = Field(default_factory=list)
+    travel_fit: dict[str, Any] = Field(default_factory=dict)
 
 
 class CostShareEstimateRead(BaseModel):
@@ -192,6 +198,46 @@ class CostShareEstimateRead(BaseModel):
     slot_starts_at: str | None = None
 
 
+class OpportunityDraftBlockerRead(BaseModel):
+    code: str
+    fact_type: str | None = None
+    label: str
+    message: str
+    action_label: str
+    action_href: str
+    pending_candidate_id: str | None = None
+
+
+class OpportunityAutonomyActionRead(BaseModel):
+    label: str
+    consequence: str
+    href: str | None = None
+    action_key: str | None = None
+    disabled_reason: str | None = None
+
+
+class OpportunityAutonomySignalRead(BaseModel):
+    label: str
+    status: str
+    confidence: int
+    detail: str
+    evidence: list[str] = Field(default_factory=list)
+
+
+class OpportunityAutonomyAssessmentRead(BaseModel):
+    level: str
+    score: int
+    summary: str
+    can_prepare_draft: bool
+    can_build_tour_leg: bool
+    can_search_evidence: bool
+    can_refresh_prices: bool = False
+    requires_human_approval: bool
+    signals: list[OpportunityAutonomySignalRead] = Field(default_factory=list)
+    next_action: OpportunityAutonomyActionRead
+    moonshot_actions: list[OpportunityAutonomyActionRead] = Field(default_factory=list)
+
+
 class OpportunityCardRead(BaseModel):
     cluster: TripClusterRead
     researcher: ResearcherRead
@@ -200,9 +246,16 @@ class OpportunityCardRead(BaseModel):
     itinerary_cities: list[str]
     draft_ready: bool
     draft_blockers: list[str]
+    draft_blocker_details: list[OpportunityDraftBlockerRead] = Field(default_factory=list)
     draft_count: int = 0
     latest_draft_id: str | None = None
     latest_draft_template: str | None = None
+    tour_leg_count: int = 0
+    latest_tour_leg_id: str | None = None
+    route_review_required: bool = False
+    route_review_resolved: bool = False
+    route_review_action: dict[str, Any] | None = None
+    automation_assessment: OpportunityAutonomyAssessmentRead | None = None
 
 
 class OpportunityWorkbenchResponse(BaseModel):
@@ -219,6 +272,13 @@ class SourceHealthRead(BaseModel):
     event_count: int
     samples: list[str]
     error: str | None = None
+    official_url: str | None = None
+    parser_strategy: str | None = None
+    needs_adapter: bool = False
+    action_label: str | None = None
+    action_href: str | None = None
+    consequence: str | None = None
+    disabled_reason: str | None = None
     checked_at: datetime
 
 
@@ -234,6 +294,7 @@ class SourceReliabilityRead(BaseModel):
     source_type: str
     latest_status: str
     latest_event_count: int
+    last_event_count: int
     previous_event_count: int | None = None
     checks_recorded: int
     success_rate: float
@@ -241,7 +302,16 @@ class SourceReliabilityRead(BaseModel):
     trend: str
     needs_attention: bool
     attention_reason: str | None = None
-    latest_checked_at: datetime
+    latest_checked_at: datetime | None = None
+    last_success_at: datetime | None = None
+    latest_error: str | None = None
+    official_url: str | None = None
+    parser_strategy: str | None = None
+    needs_adapter: bool = False
+    action_label: str | None = None
+    action_href: str | None = None
+    consequence: str | None = None
+    disabled_reason: str | None = None
 
 
 class RunbookStepRead(BaseModel):
@@ -262,6 +332,84 @@ class OperatorRunbookResponse(BaseModel):
     host_event_count: int
     draft_counts_by_status: dict[str, int]
     recommended_steps: list[RunbookStepRead]
+
+
+class OperatorActionRead(BaseModel):
+    label: str
+    href: str | None = None
+    method: str = "GET"
+    action_key: str | None = None
+    disabled_reason: str | None = None
+
+
+class OperatorPrimaryFlowRead(OperatorActionRead):
+    consequence: str
+
+
+class OperatorSetupBlockerRead(BaseModel):
+    id: str
+    title: str
+    explanation: str
+    action: OperatorPrimaryFlowRead
+    count: int = 0
+
+
+class OperatorTaskRead(BaseModel):
+    id: str
+    group: str
+    severity: str
+    status: str
+    title: str
+    explanation: str
+    primary_action: OperatorActionRead
+    secondary_actions: list[OperatorActionRead] = Field(default_factory=list)
+    entity_type: str | None = None
+    entity_id: str | None = None
+    count: int = 1
+    disabled_reason: str | None = None
+    last_updated_at: datetime | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class OperatorTaskGroupRead(BaseModel):
+    key: str
+    title: str
+    purpose: str
+    tasks: list[OperatorTaskRead]
+
+
+class OperatorCockpitResponse(BaseModel):
+    generated_at: datetime
+    posture: str
+    posture_detail: str
+    data_state: str
+    setup_blockers: list[OperatorSetupBlockerRead] = Field(default_factory=list)
+    primary_flow: OperatorPrimaryFlowRead
+    summary_metrics: dict[str, int]
+    next_best_action: OperatorTaskRead | None = None
+    groups: list[OperatorTaskGroupRead]
+    recent_changes: list[dict[str, Any]] = Field(default_factory=list)
+    source_snapshot: dict[str, Any] = Field(default_factory=dict)
+
+
+class MorningSweepStepRead(BaseModel):
+    key: str
+    title: str
+    status: str
+    detail: str
+    processed_count: int = 0
+    created_count: int = 0
+    updated_count: int = 0
+    source_counts: dict[str, int] = Field(default_factory=dict)
+    error: str | None = None
+
+
+class MorningSweepResponse(BaseModel):
+    started_at: datetime
+    finished_at: datetime
+    status: str
+    steps: list[MorningSweepStepRead]
+    summary_metrics: dict[str, int]
 
 
 class InstitutionRead(BaseModel):
@@ -353,9 +501,89 @@ class WishlistAlertRead(BaseModel):
     institution_name: str | None = None
 
 
+class WishlistAlertStatusUpdate(BaseModel):
+    status: str
+    note: str | None = None
+
+
+class WishlistMatchParticipantRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    match_group_id: str
+    masked_label: str
+    distance_km: float | None = None
+    distance_band: str
+    role: str
+    status: str
+    budget_status: str
+    slot_status: str
+    metadata_json: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
+class WishlistMatchGroupRead(BaseModel):
+    id: str
+    researcher_id: str | None = None
+    normalized_speaker_name: str
+    display_speaker_name: str
+    status: str
+    radius_km: int
+    score: int
+    anonymity_mode: str
+    rationale: list[dict[str, Any]]
+    metadata_json: dict[str, Any]
+    participant_count: int
+    participants: list[WishlistMatchParticipantRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class WishlistMatchStatusUpdate(BaseModel):
+    status: str
+    note: str | None = None
+
+
 class TourLegProposalRequest(BaseModel):
     trip_cluster_id: str
-    fee_per_stop_chf: int = Field(default=3500, ge=0)
+    fee_per_stop_chf: int | None = Field(default=None, ge=0)
+
+
+class TravelPriceCheckCreate(BaseModel):
+    origin_city: str = Field(min_length=1, max_length=120)
+    destination_city: str = Field(min_length=1, max_length=120)
+    departure_at: datetime | None = None
+    tour_leg_id: str | None = None
+    force_refresh: bool = False
+    travel_class: str = "first"
+    fare_policy: str = "full_fare"
+
+
+class TravelPriceCheckRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    tour_leg_id: str | None = None
+    cache_key: str
+    origin_city: str
+    destination_city: str
+    departure_at: datetime | None = None
+    travel_class: str
+    fare_policy: str
+    provider: str
+    status: str
+    amount: float | None = None
+    currency: str
+    amount_chf: int
+    confidence: float
+    source_url: str | None = None
+    action_href: str | None = None
+    raw_summary: dict[str, Any]
+    error: str | None = None
+    fetched_at: datetime
+    expires_at: datetime
+    created_at: datetime
 
 
 class TourStopRead(BaseModel):
@@ -394,6 +622,27 @@ class TourLegRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     stops: list[TourStopRead] = Field(default_factory=list)
+
+
+class TourAssemblyProposalRequest(BaseModel):
+    match_group_id: str
+
+
+class TourAssemblyProposalRead(BaseModel):
+    id: str
+    match_group_id: str
+    researcher_id: str | None = None
+    tour_leg_id: str | None = None
+    speaker_draft_id: str | None = None
+    title: str
+    status: str
+    term_sheet_json: dict[str, Any]
+    budget_summary_json: dict[str, Any]
+    blockers: list[dict[str, Any]]
+    masked_summary_json: dict[str, Any]
+    match_group: WishlistMatchGroupRead | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 class RelationshipBriefUpdate(BaseModel):
@@ -447,6 +696,48 @@ class AuditEventRead(BaseModel):
     created_at: datetime
 
 
+class BusinessCaseResultRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    run_id: str
+    researcher_id: str | None = None
+    case_key: str
+    display_name: str
+    target_name: str
+    verdict: str
+    score: int
+    data_found: bool
+    kof_fit_status: str
+    route_status: str
+    evidence_status: str
+    draft_status: str
+    price_status: str
+    evidence_summary_json: dict[str, Any]
+    fit_summary_json: dict[str, Any]
+    route_summary_json: dict[str, Any]
+    price_summary_json: dict[str, Any]
+    draft_gate_json: dict[str, Any]
+    blockers: list[dict[str, Any]]
+    source_links_json: list[dict[str, Any]]
+    metadata_json: dict[str, Any]
+    created_at: datetime
+
+
+class BusinessCaseRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    mode: str
+    status: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    summary_json: dict[str, Any]
+    error: str | None = None
+    created_at: datetime
+    results: list[BusinessCaseResultRead] = Field(default_factory=list)
+
+
 class EnrichRequest(BaseModel):
     cv_text: str | None = None
     source_url: str | None = None
@@ -470,7 +761,7 @@ class ReviewDecisionRequest(BaseModel):
 class DraftCreate(BaseModel):
     researcher_id: str
     trip_cluster_id: str
-    template_key: str = "concierge"
+    template_key: str = "kof_invitation"
 
 
 class DraftStatusUpdate(BaseModel):

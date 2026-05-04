@@ -1,159 +1,390 @@
+import type { Route } from "next";
 import Link from "next/link";
 
+import { ActionNotice } from "@/components/action-notice";
+import { ApiOfflineState } from "@/components/api-offline-state";
+import { BusinessCaseRunButton } from "@/components/business-case-run-button";
+import { MorningSweepButton } from "@/components/morning-sweep-button";
 import { Panel } from "@/components/panel";
-import { ScoreBadge } from "@/components/score-badge";
-import { getCalendarOverlay, getDailyCatch, getResearchers, getReviewQueue, getTourLegs, getWishlistAlerts } from "@/lib/api";
+import { getBusinessCaseRuns, getOperatorCockpit, type BusinessCaseRun, type OperatorPrimaryFlow, type OperatorSetupBlocker } from "@/lib/api";
+
+export const dynamic = "force-dynamic";
+
+const DATA_STATE_COPY = {
+  empty: {
+    label: "No data yet",
+    tone: "blocked",
+    text: "Roadshow has no source sync or seminar setup yet. Start with a real source sync and define the weekly KOF slot if needed.",
+  },
+  demo: {
+    label: "Unverified records present",
+    tone: "warning",
+    text: "Some records were created outside the normal source-sync path. Run source sync and verify evidence before outreach.",
+  },
+  real: {
+    label: "Real scraper data available",
+    tone: "",
+    text: "Roadshow has live or manually entered records and can guide seminar decisions from the current database.",
+  },
+  stale: {
+    label: "Sources stale",
+    tone: "blocked",
+    text: "At least one watched source needs action. Refresh source data before relying on the opportunity picture.",
+  },
+} as const;
+
+function metricValue(metrics: Record<string, number>, key: string): number {
+  return metrics[key] ?? 0;
+}
+
+function workspaceLabel(href?: string | null): string {
+  if (!href) {
+    return "Start";
+  }
+  if (href.startsWith("/seminar-admin")) {
+    return "Settings";
+  }
+  if (href.startsWith("/review")) {
+    return "Evidence";
+  }
+  if (href.startsWith("/calendar")) {
+    return "Calendar";
+  }
+  if (href.startsWith("/drafts")) {
+    return "Drafts";
+  }
+  if (href.startsWith("/opportunities")) {
+    return "Opportunities";
+  }
+  return "Details";
+}
+
+function PrimaryAction({ flow }: { flow: OperatorPrimaryFlow }) {
+  if (flow.disabled_reason) {
+    return (
+      <div className="purpose-action">
+        <button disabled type="button">
+          {flow.label}
+        </button>
+        <span className="fine-print action-blocker">{flow.disabled_reason}</span>
+      </div>
+    );
+  }
+  if (flow.action_key === "morning_sweep" || flow.action_key === "real_sync") {
+    return <MorningSweepButton helperText={flow.consequence} label={flow.label} />;
+  }
+  if (flow.href) {
+    return (
+      <Link className="button-link" href={flow.href as Route}>
+        {flow.label}
+      </Link>
+    );
+  }
+  return <span className="timeline-chip">{flow.label}</span>;
+}
+
+function BlockerAction({ action }: { action: OperatorPrimaryFlow }) {
+  if (action.disabled_reason) {
+    return (
+      <div className="purpose-action">
+        <button disabled type="button">
+          {action.label}
+        </button>
+        <span className="fine-print action-blocker">{action.disabled_reason}</span>
+      </div>
+    );
+  }
+  if (action.action_key === "morning_sweep" || action.action_key === "real_sync") {
+    return <MorningSweepButton helperText={action.consequence} label={action.label} />;
+  }
+  if (action.href) {
+    return (
+      <Link className="button-link" href={action.href as Route}>
+        {action.label}
+      </Link>
+    );
+  }
+  return <span className="timeline-chip">{action.label}</span>;
+}
+
+function BlockerList({ blockers }: { blockers: OperatorSetupBlocker[] }) {
+  if (!blockers.length) {
+    return (
+      <div className="empty-state">
+        <h3>No setup blockers.</h3>
+        <p className="muted">KOF slots, speaker visits, evidence, and source state are ready enough for normal seminar work.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="guided-list">
+      {blockers.map((blocker, index) => (
+        <article className="guided-item" key={blocker.id}>
+          <span className="step-index">{index + 1}</span>
+          <div>
+            <h3>{blocker.title}</h3>
+            <p className="muted">{blocker.explanation}</p>
+            <p className="fine-print">
+              Handle this in {workspaceLabel(blocker.action.href)}. {blocker.action.consequence}
+            </p>
+            <div className="blocker-action-row">
+              <BlockerAction action={blocker.action} />
+            </div>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function RecentChangeList({ changes }: { changes: { id: string; event_type: string; created_at: string }[] }) {
+  if (!changes.length) {
+    return (
+      <div className="empty-state">
+        <h3>No actions recorded yet.</h3>
+        <p className="muted">Source syncs, evidence decisions, drafts, and tour proposals will appear here.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="guided-list compact">
+      {changes.slice(0, 4).map((event) => (
+        <article className="guided-item" key={event.id}>
+          <span className="status-pill">{event.event_type.replaceAll("_", " ")}</span>
+          <p className="muted">{new Date(event.created_at).toLocaleString()}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function DataStateNotice({ dataState }: { dataState: (typeof DATA_STATE_COPY)[keyof typeof DATA_STATE_COPY] }) {
+  if (!dataState.tone) {
+    return (
+      <div className="data-state-banner">
+        <span className="status-pill">{dataState.label}</span>
+        <p>{dataState.text}</p>
+      </div>
+    );
+  }
+
+  const isStale = dataState.label === "Sources stale";
+  return (
+    <ActionNotice
+      severity={dataState.tone}
+      title={dataState.label}
+      explanation={dataState.text}
+      primaryAction={{
+        label: isStale ? "Inspect data sources" : "Run real source sync",
+        consequence: isStale
+          ? "Opens the exact source status page with failure reasons, official links, and parser state."
+          : "Refreshes watched sources, KOF calendar, evidence, availability, scores, and source status.",
+        href: isStale ? "/source-health" : undefined,
+      }}
+      primaryActionSlot={
+        isStale ? undefined : (
+          <MorningSweepButton helperText="Refreshes watched sources, KOF calendar, evidence, availability, scores, and source status." />
+        )
+      }
+      secondaryActions={[
+        {
+          label: "Set weekly KOF slot",
+          consequence: "Opens KOF slot settings so source data can be matched against actual seminar capacity.",
+          href: "/seminar-admin",
+        },
+      ]}
+    />
+  );
+}
+
+function SourceStatusNotice({
+  sourcesNeedingAttention,
+  needsAdapter,
+}: {
+  sourcesNeedingAttention: number;
+  needsAdapter: number;
+}) {
+  if (!sourcesNeedingAttention && !needsAdapter) {
+    return null;
+  }
+  return (
+    <ActionNotice
+      severity="warning"
+      title="Some watched sources need action"
+      explanation="The current opportunity picture may be incomplete until source errors, empty feeds, or adapter gaps are inspected."
+      primaryAction={{
+        label: "Run real source sync",
+        consequence: "Re-checks watched sources and records a new source-health snapshot.",
+      }}
+      primaryActionSlot={<MorningSweepButton helperText="Re-checks watched sources and records a new source-health snapshot." />}
+      secondaryActions={[
+        {
+          label: "Inspect data sources",
+          consequence: "Shows the exact failing or empty source, latest error, official source link, and parser strategy.",
+          href: "/source-health",
+        },
+      ]}
+    />
+  );
+}
+
+function BusinessCaseStatus({ run }: { run?: BusinessCaseRun | null }) {
+  if (!run) {
+    return (
+      <ActionNotice
+        explanation="No real-case shadow audit has been recorded yet."
+        severity="info"
+        title="Business-case quality gate not run"
+        primaryAction={{
+          label: "Open business-case audit",
+          consequence: "Opens the audit page for Mirko Wiederholt, Rahul Deb, Daron Acemoglu, and a real-data negative control.",
+          href: "/business-cases",
+        }}
+      />
+    );
+  }
+  const blocked = typeof run.summary_json.blocked_count === "number" ? run.summary_json.blocked_count : 0;
+  const allowed = typeof run.summary_json.draft_allowed_count === "number" ? run.summary_json.draft_allowed_count : 0;
+  const severity = run.status === "failed" ? "error" : blocked ? "warning" : "info";
+  return (
+    <ActionNotice
+      explanation={`Latest audit tested ${run.results.length} cases. ${allowed} draft previews passed, ${blocked} cases are blocked with explicit reasons.`}
+      severity={severity}
+      title="Latest business-case audit"
+      primaryAction={{
+        label: "Inspect business-case blockers",
+        consequence: "Opens the latest case audit with evidence, KOF fit, route, fare, and draft-gate details.",
+        href: "/business-cases",
+      }}
+    />
+  );
+}
 
 export default async function HomePage() {
-  const [dailyCatch, overlay, researchers, reviewQueue, tourLegs, wishlistAlerts] = await Promise.all([
-    getDailyCatch(),
-    getCalendarOverlay(),
-    getResearchers(),
-    getReviewQueue(),
-    getTourLegs(),
-    getWishlistAlerts(),
-  ]);
+  let cockpit;
+  let businessRuns: BusinessCaseRun[] = [];
+  try {
+    cockpit = await getOperatorCockpit();
+    businessRuns = await getBusinessCaseRuns();
+  } catch (error) {
+    return <ApiOfflineState message={error instanceof Error ? error.message : "Roadshow API is unavailable."} />;
+  }
 
-  const topScore = dailyCatch.top_clusters[0]?.opportunity_score ?? 0;
+  const dataState = DATA_STATE_COPY[cockpit.data_state] ?? DATA_STATE_COPY.empty;
 
   return (
-    <>
-      <section className="hero">
-        <div className="hero-card">
-          <span className="eyebrow">KOF Roadshow</span>
-          <h1 className="hero-title">Where Europe&apos;s seminar trail becomes a tour leg.</h1>
+    <div className="stack">
+      <section className="hero guided-hero">
+        <div className="hero-card guided-start-card">
+          <span className="eyebrow">Seminar Manager Start</span>
+          <h1 className="hero-title">One next seminar action, not another dashboard.</h1>
           <p className="hero-copy">
-            Roadshow listens through Scout, models KOF as a smart Zurich stop, and turns biographic evidence, slot fit, wishlist demand, and
-            cost split into a concierge-ready invitation workflow.
+            Roadshow checks whether KOF has slots, whether speaker visits exist, whether evidence blocks outreach, and what you should do next.
           </p>
-          <div className="kpi-grid">
-            <div className="metric">
-              <div className="metric-value">{dailyCatch.recent_events.length}</div>
-              <div className="metric-label">Recent names in the last 24h</div>
-            </div>
-            <div className="metric">
-              <div className="metric-value">{overlay.open_windows.length}</div>
-              <div className="metric-label">Open KOF windows</div>
-            </div>
-            <div className="metric">
-              <div className="metric-value">{topScore}</div>
-              <div className="metric-label">Top current opportunity score</div>
-            </div>
-            <div className="metric">
-              <div className="metric-value">{wishlistAlerts.length}</div>
-              <div className="metric-label">Wishlist alerts</div>
-            </div>
-            <div className="metric">
-              <div className="metric-value">{tourLegs.length}</div>
-              <div className="metric-label">Modeled tour legs</div>
-            </div>
-            <div className="metric">
-              <div className="metric-value">{reviewQueue.length}</div>
-              <div className="metric-label">Pending evidence reviews</div>
-            </div>
+          <DataStateNotice dataState={dataState} />
+        </div>
+
+        <section className="primary-flow-card" data-primary-action="true">
+          <span className="eyebrow">Next action</span>
+          <h2>{cockpit.primary_flow.label}</h2>
+          <p>{cockpit.primary_flow.consequence}</p>
+          <PrimaryAction flow={cockpit.primary_flow} />
+        </section>
+      </section>
+
+      <section className="guided-metrics" aria-label="What Roadshow knows">
+        <div className="metric">
+          <div className="metric-value">{metricValue(cockpit.summary_metrics, "active_kof_slots")}</div>
+          <div className="metric-label">Weekly KOF slot patterns</div>
+        </div>
+        <div className="metric">
+          <div className="metric-value">{metricValue(cockpit.summary_metrics, "open_windows")}</div>
+          <div className="metric-label">Open KOF windows</div>
+        </div>
+        <div className="metric">
+          <div className="metric-value">{metricValue(cockpit.summary_metrics, "speaker_visits")}</div>
+          <div className="metric-label">Speaker visits found</div>
+        </div>
+        <div className="metric">
+          <div className="metric-value">{metricValue(cockpit.summary_metrics, "pending_evidence")}</div>
+          <div className="metric-label">Evidence items to approve</div>
+        </div>
+      </section>
+
+      <Panel title="Source status" copy="The latest real-data picture from watched institutions and KOF calendar sync.">
+        <div className="guided-metrics compact">
+          <div className="metric">
+            <div className="metric-value">{cockpit.source_snapshot.sources_tracked}</div>
+            <div className="metric-label">Sources tracked</div>
+          </div>
+          <div className="metric">
+            <div className="metric-value">{cockpit.source_snapshot.sources_with_events}</div>
+            <div className="metric-label">Sources with events</div>
+          </div>
+          <div className="metric">
+            <div className="metric-value">{cockpit.source_snapshot.total_events_last_check}</div>
+            <div className="metric-label">Events in latest checks</div>
+          </div>
+          <div className="metric">
+            <div className="metric-value">{cockpit.source_snapshot.sources_needing_attention}</div>
+            <div className="metric-label">Sources needing attention</div>
           </div>
         </div>
-        <Panel
-          title="Pilot watchlist"
-          copy="The v1 crawler is tuned to DACH-adjacent and policy-heavy sources."
-        >
-          <div className="timeline-strip">
-            {["Bocconi", "Mannheim", "Bonn", "ECB", "BIS", "KOF Host Calendar"].map((label) => (
-              <span className="timeline-chip" key={label}>
-                {label}
-              </span>
-            ))}
-          </div>
-          <p className="fine-print">
-            KOF public events are treated as occupied dates. Open invitation windows are derived from recurring templates and overrides.
-          </p>
-        </Panel>
-      </section>
-
-      <section className="content-grid">
-        <Panel title="Scout clusters" copy="Ranked by Zurich-specific invitation fit.">
-          <div className="card-list">
-            {dailyCatch.top_clusters.map((cluster) => (
-              <div className="list-card" key={cluster.id}>
-                <div className="panel-header">
-                  <div>
-                    <h3>
-                      {cluster.start_date} to {cluster.end_date}
-                    </h3>
-                    <p className="muted">{cluster.itinerary.map((stop) => stop.city).join(" -> ")}</p>
-                  </div>
-                  <ScoreBadge score={cluster.opportunity_score} />
-                </div>
-                <div className="timeline-strip">
-                  {cluster.rationale.map((entry) => (
-                    <span className="timeline-chip" key={`${cluster.id}-${entry.label}`}>
-                      {entry.label} +{entry.points}
-                    </span>
-                  ))}
-                </div>
-                {cluster.uses_unreviewed_evidence ? <p className="fine-print">Pending evidence is currently contributing to this score.</p> : null}
-              </div>
-            ))}
-          </div>
-        </Panel>
-
-        <Panel title="Daily Catch" copy="Newly scraped appearances from the pilot hub set.">
-          <div className="event-list">
-            {dailyCatch.recent_events.map((event) => (
-              <div className="list-card" key={event.id}>
-                <h3>{event.speaker_name}</h3>
-                <p className="muted">
-                  {event.title} | {event.city}, {event.country}
-                </p>
-                <p className="fine-print">
-                  {new Date(event.starts_at).toLocaleString()} | {event.source_name.toUpperCase()}
-                </p>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </section>
+        <p className="fine-print">
+          Last source sync:{" "}
+          {cockpit.source_snapshot.last_sync_at ? new Date(cockpit.source_snapshot.last_sync_at).toLocaleString() : "not recorded yet"}.
+          {cockpit.source_snapshot.needs_adapter
+            ? ` ${cockpit.source_snapshot.needs_adapter} watched source${cockpit.source_snapshot.needs_adapter === 1 ? "" : "s"} still need source-specific extraction.`
+            : ""}
+        </p>
+        <SourceStatusNotice
+          needsAdapter={cockpit.source_snapshot.needs_adapter}
+          sourcesNeedingAttention={cockpit.source_snapshot.sources_needing_attention}
+        />
+      </Panel>
 
       <section className="dual-grid">
-        <Panel title="KOF calendar overlay" copy="Host events block derived invitation windows.">
-          <div className="card-list">
-            {overlay.open_windows.map((window) => (
-              <div className="list-card" key={window.id}>
-                <div className="panel-header">
-                  <h3>{new Date(window.starts_at).toLocaleString()}</h3>
-                  <span className="status-pill">{window.source}</span>
-                </div>
-                <p className="muted">Until {new Date(window.ends_at).toLocaleString()}</p>
-              </div>
-            ))}
-          </div>
+        <Panel title="What blocks seminar management" copy="This is the checklist behind the one recommended action above.">
+          <BlockerList blockers={cockpit.setup_blockers} />
         </Panel>
-
-        <Panel title="Speaker ledger" copy="Evidence-backed profiles and itinerary context.">
-          <div className="card-list">
-            {researchers.map((researcher) => (
-              <div className="list-card" key={researcher.id}>
-                <div className="panel-header">
-                  <div>
-                    <h3>{researcher.name}</h3>
-                    <p className="muted">{researcher.home_institution || "Institution pending"}</p>
-                  </div>
-                  <Link className="ghost-button" href={`/researchers/${researcher.id}`}>
-                    View dossier
-                  </Link>
-                </div>
-                <div className="timeline-strip">
-                  {researcher.facts.map((fact) => (
-                    <span className="timeline-chip" key={fact.id}>
-                      {fact.fact_type}: {fact.value}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+        <Panel title="What changed recently" copy="A short audit trail so you can re-enter the workflow quickly.">
+          <RecentChangeList changes={cockpit.recent_changes} />
         </Panel>
       </section>
-    </>
+
+      <Panel title="Business-case quality gate" copy="A compact proof check for real target cases before Roadshow is trusted for outreach decisions.">
+        <BusinessCaseStatus run={businessRuns[0]} />
+        <BusinessCaseRunButton onCompleteHref="/business-cases" />
+      </Panel>
+
+      <Panel title="Workspaces" copy="Use these only when the next action points you there, or when you want to inspect details.">
+        <div className="workspace-grid">
+          <Link className="workspace-link" href="/opportunities">
+            <strong>Opportunities</strong>
+            <span>Ranked speaker visits, best KOF slot, cost split, and draft readiness.</span>
+          </Link>
+          <Link className="workspace-link" href="/calendar">
+            <strong>Calendar</strong>
+            <span>KOF occupied events and generated open invitation windows.</span>
+          </Link>
+          <Link className="workspace-link" href="/review?status=pending">
+            <strong>Evidence</strong>
+            <span>Approve PhD and nationality facts before outreach uses them.</span>
+          </Link>
+          <Link className="workspace-link" href="/drafts">
+            <strong>Drafts</strong>
+            <span>Generated invitations awaiting human review or manual send tracking.</span>
+          </Link>
+          <Link className="workspace-link" href="/seminar-admin">
+            <strong>Settings</strong>
+            <span>Recurring KOF seminar slots, manual blocks, and one-off openings.</span>
+          </Link>
+          <Link className="workspace-link" href={"/business-cases" as Route}>
+            <strong>Business Case Audit</strong>
+            <span>Shadow-test real target cases across data, fit, route, fare, and draft gates.</span>
+          </Link>
+        </div>
+      </Panel>
+    </div>
   );
 }

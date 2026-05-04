@@ -96,10 +96,10 @@ export function OverrideManager({ overrides }: OverrideManagerProps) {
                   {override.status}
                 </span>
                 <button className="ghost-button" disabled={pending} onClick={() => startEditing(override)} type="button">
-                  Edit
+                  Edit override
                 </button>
                 <button className="ghost-button" disabled={pending} onClick={() => handleDelete(override.id)} type="button">
-                  Delete
+                  Delete override
                 </button>
               </div>
             </div>

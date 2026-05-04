@@ -1,13 +1,17 @@
 import Link from "next/link";
 
+import { EvidenceSearchButton } from "@/components/evidence-search-button";
 import { Panel } from "@/components/panel";
 import { ReviewInbox } from "@/components/review-inbox";
 import { getReviewQueue } from "@/lib/api";
+
+export const dynamic = "force-dynamic";
 
 type ReviewPageProps = {
   searchParams?: Promise<{
     status?: string;
     fact_type?: string;
+    researcher_id?: string;
     min_confidence?: string;
     source_contains?: string;
   }>;
@@ -41,6 +45,7 @@ export default async function ReviewPage({ searchParams }: ReviewPageProps) {
   const candidates = await getReviewQueue({
     status: activeStatus,
     fact_type: params.fact_type,
+    researcher_id: params.researcher_id,
     min_confidence: params.min_confidence,
     source_contains: params.source_contains,
   });
@@ -53,7 +58,7 @@ export default async function ReviewPage({ searchParams }: ReviewPageProps) {
       <section className="hero">
         <div className="hero-card">
           <span className="eyebrow">Evidence Review</span>
-          <h1 className="hero-title">Triage the biographer&apos;s claims.</h1>
+          <h1 className="hero-title">Triage extracted source claims.</h1>
           <p className="hero-copy">
             Filter pending and reviewed fact candidates by status, fact type, confidence, and source before approving evidence into the
             outreach-safe fact ledger.
@@ -126,6 +131,7 @@ export default async function ReviewPage({ searchParams }: ReviewPageProps) {
                   Source contains
                   <input defaultValue={params.source_contains || ""} name="source_contains" placeholder="cv, repec, ideas..." />
                 </label>
+                {params.researcher_id ? <input name="researcher_id" type="hidden" value={params.researcher_id} /> : null}
               </div>
               <div className="template-actions">
                 <button type="submit">Apply filters</button>
@@ -144,6 +150,25 @@ export default async function ReviewPage({ searchParams }: ReviewPageProps) {
       >
         {candidates.length ? (
           <ReviewInbox candidates={candidates} />
+        ) : params.researcher_id && params.fact_type ? (
+          <div className="empty-state compact-empty">
+            <h3>No pending evidence exists for this blocker.</h3>
+            <p className="muted">
+              Roadshow has no extracted candidate to approve for this speaker yet. Search trusted sources first; if no public evidence is found,
+              add the approved fact manually on the speaker dossier.
+            </p>
+            <div className="template-actions">
+              <EvidenceSearchButton
+                className="button-link"
+                helperText="Checks RePEc Genealogy, ORCID, CEPR, institutional profiles, and linked CV pages for reviewable evidence."
+                label="Search trusted evidence"
+                researcherId={params.researcher_id}
+              />
+              <Link className="ghost-button" href={`/researchers/${params.researcher_id}?missing_fact=${params.fact_type}#manual-facts`}>
+                Add approved {factTypes.find((factType) => factType.key === params.fact_type)?.label ?? "fact"}
+              </Link>
+            </div>
+          </div>
         ) : (
           <p className="fine-print">No pending fact candidates are waiting for review.</p>
         )}

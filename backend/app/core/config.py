@@ -17,8 +17,73 @@ class Settings:
     evidence_confidence_threshold: float = 0.6
 
     @property
+    def roadshow_env(self) -> str:
+        return os.getenv("ROADSHOW_ENV", "development").lower()
+
+    @property
+    def is_production(self) -> bool:
+        return self.roadshow_env == "production"
+
+    @property
+    def demo_tools_enabled(self) -> bool:
+        return os.getenv("ROADSHOW_ENABLE_DEMO_TOOLS", "").lower() in {"1", "true", "yes", "on"}
+
+    @property
+    def frontend_password(self) -> str | None:
+        return os.getenv("ROADSHOW_APP_PASSWORD") or os.getenv("ATG_APP_PASSWORD") or None
+
+    @property
     def access_token(self) -> str | None:
         return os.getenv("ROADSHOW_API_ACCESS_TOKEN") or os.getenv("ATG_API_ACCESS_TOKEN") or None
+
+    @property
+    def rail_class(self) -> str:
+        return os.getenv("ROADSHOW_RAIL_CLASS", "first").lower()
+
+    @property
+    def rail_fare_policy(self) -> str:
+        return os.getenv("ROADSHOW_RAIL_FARE_POLICY", "full_fare").lower()
+
+    @property
+    def opentransportdata_api_token(self) -> str | None:
+        return os.getenv("OPENTRANSPORTDATA_API_TOKEN") or None
+
+    @property
+    def rail_europe_api_token(self) -> str | None:
+        return os.getenv("RAIL_EUROPE_API_TOKEN") or None
+
+    @property
+    def rail_europe_api_base_url(self) -> str | None:
+        return os.getenv("RAIL_EUROPE_API_BASE_URL") or None
+
+    @property
+    def rail_price_cache_hours(self) -> int:
+        try:
+            return max(1, int(os.getenv("RAIL_PRICE_CACHE_HOURS", "24")))
+        except ValueError:
+            return 24
+
+    @property
+    def eur_chf_rate(self) -> float:
+        try:
+            return float(os.getenv("ROADSHOW_EUR_CHF_RATE", "0.95"))
+        except ValueError:
+            return 0.95
+
+    def production_validation_errors(self) -> list[str]:
+        if not self.is_production:
+            return []
+        errors: list[str] = []
+        if not self.frontend_password:
+            errors.append("ROADSHOW_APP_PASSWORD is required when ROADSHOW_ENV=production.")
+        if not self.access_token:
+            errors.append("ROADSHOW_API_ACCESS_TOKEN is required when ROADSHOW_ENV=production.")
+        return errors
+
+    def ensure_production_ready(self) -> None:
+        errors = self.production_validation_errors()
+        if errors:
+            raise RuntimeError(" ".join(errors))
 
     @property
     def database_url(self) -> str:

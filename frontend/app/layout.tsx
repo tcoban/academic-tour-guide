@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import type { Route } from "next";
 import { Fraunces, Manrope } from "next/font/google";
 import type { ReactNode } from "react";
 
@@ -33,16 +34,23 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
               </span>
             </div>
             <nav className="nav-links">
-              <Link href="/">Daily Catch</Link>
-              <Link href="/runbook">Runbook</Link>
-              <Link href="/wishlist">Wishlist</Link>
-              <Link href="/tour-legs">Tour Legs</Link>
-              <Link href="/calendar">Calendar</Link>
+              <Link href="/">Start</Link>
               <Link href="/opportunities">Opportunities</Link>
+              <Link href="/calendar">Calendar</Link>
+              <Link href="/review">Evidence</Link>
               <Link href="/drafts">Drafts</Link>
-              <Link href="/source-health">Source Health</Link>
-              <Link href="/review">Review Queue</Link>
-              <Link href="/seminar-admin">Seminar Admin</Link>
+              <details className="nav-tools">
+                <summary>Settings</summary>
+                <div className="nav-menu">
+                  <Link href="/seminar-admin">KOF Slots</Link>
+                  <Link href="/wishlist">Wishlist</Link>
+                  <Link href="/tour-assemblies">Tour Assemblies</Link>
+                  <Link href="/tour-legs">Tour Legs</Link>
+                  <Link href={"/business-cases" as Route}>Business Case Audit</Link>
+                  <Link href="/source-health">Data Sources</Link>
+                  <Link href="/runbook">Runbook</Link>
+                </div>
+              </details>
             </nav>
           </header>
           {children}

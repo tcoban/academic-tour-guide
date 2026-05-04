@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from math import ceil
 from typing import Any
 
 from sqlalchemy import desc, select
@@ -25,6 +24,7 @@ from app.models.entities import (
 from app.services.enrichment import normalize_name
 from app.services.logistics import CostSharingCalculator
 from app.services.opportunities import OpportunityWorkbench
+from app.services.travel_prices import TravelPriceChecker
 
 
 KOF_INSTITUTION_NAME = "KOF Swiss Economic Institute"
@@ -196,33 +196,31 @@ class RoadshowService:
             )
         return created
 
-    def propose_tour_leg(self, cluster: TripCluster, fee_per_stop_chf: int = 3500) -> TourLeg:
+    def propose_tour_leg(self, cluster: TripCluster, fee_per_stop_chf: int | None = None) -> TourLeg:
         if not cluster.researcher:
             raise ValueError("Trip cluster must be linked to a researcher before a tour leg can be proposed.")
 
         kof = self.ensure_kof_institution()
         profile = self.ensure_speaker_profile(cluster.researcher)
-        fee_floor = profile.fee_floor_chf or fee_per_stop_chf
-        fee = max(fee_floor, fee_per_stop_chf)
+        explicit_fee = profile.fee_floor_chf if profile.fee_floor_chf is not None else fee_per_stop_chf
+        fee = explicit_fee or 0
+        fee_source = "speaker_profile" if profile.fee_floor_chf is not None else ("request_override" if fee_per_stop_chf else "not_assumed")
         match = OpportunityWorkbench(self.session).best_window_for_cluster(cluster)
-        estimate = self.cost_sharing.estimate(cluster, cluster.researcher, match.window if match else None) or {}
+        travel_plan = self.cost_sharing.tour_leg_cost_plan(cluster, cluster.researcher, match.window if match else None)
         itinerary_stops = list(cluster.itinerary or [])
         stop_count = max(1, len(itinerary_stops) + (1 if match else 0))
-        baseline = int(estimate.get("baseline_round_trip_chf") or 900)
-        incremental = int(estimate.get("multi_city_incremental_chf") or 0)
-        travel_total = baseline + incremental
-        travel_share = ceil(travel_total / stop_count)
         cost_split = {
+            **travel_plan,
             "deterministic": True,
             "source": "negotiator_lite",
             "co_booking_stop_count": stop_count,
-            "baseline_single_host_chf": baseline,
-            "modeled_total_travel_chf": travel_total,
-            "per_stop_travel_share_chf": travel_share,
-            "estimated_savings_for_kof_chf": max(0, baseline - travel_share),
-            "zurich_add_on_chf": incremental,
+            "speaker_fee_chf": fee,
+            "speaker_fee_source": fee_source,
+            "modeled_total_travel_chf": int(travel_plan["modeled_total_chf"]),
+            "per_stop_travel_share_chf": int(travel_plan["modeled_total_chf"] / stop_count) if stop_count else 0,
             "assumption_notes": [
-                "Roadshow v1 uses deterministic screening estimates, not live fare quotes.",
+                *travel_plan["assumption_notes"],
+                "Speaker fee or honorarium is included only when it is explicitly configured on the speaker profile or request.",
                 "Contracts, payments, and travel booking remain manual/off-platform in this phase.",
             ],
         }
@@ -233,52 +231,96 @@ class RoadshowService:
             status="proposed",
             start_date=cluster.start_date,
             end_date=cluster.end_date,
-            estimated_fee_total_chf=fee * stop_count,
-            estimated_travel_total_chf=travel_total,
+            estimated_fee_total_chf=fee,
+            estimated_travel_total_chf=int(travel_plan["modeled_total_chf"]),
             cost_split_json=cost_split,
             rationale=[
                 {"label": "Scout cluster", "detail": "Built from scraped European appearances."},
-                {"label": "Cost split", "detail": f"CHF {travel_share} travel share across {stop_count} modeled stops."},
+                {
+                    "label": "Adjacent-leg split",
+                    "detail": self._cost_split_rationale(cost_split),
+                },
             ],
         )
         self.session.add(tour_leg)
         self.session.flush()
 
-        stops: list[TourStop] = []
-        for index, item in enumerate(itinerary_stops, start=1):
-            stops.append(
-                TourStop(
-                    tour_leg_id=tour_leg.id,
-                    sequence=index,
-                    city=str(item.get("city") or "Unknown"),
-                    country=item.get("country"),
-                    starts_at=self._parse_datetime(item.get("starts_at")),
-                    format="external_appearance",
-                    fee_chf=fee,
-                    travel_share_chf=travel_share,
-                    status="known",
-                    metadata_json={"title": item.get("title"), "source_name": item.get("source_name"), "url": item.get("url")},
-                )
+        stop_specs: list[dict[str, Any]] = []
+        external_leg_shares = {
+            str(city).lower(): int(amount)
+            for city, amount in dict(cost_split.get("external_leg_shares") or {}).items()
+        }
+        for item in itinerary_stops:
+            city = str(item.get("city") or "Unknown")
+            external_share = external_leg_shares.get(city.lower(), 0)
+            if not external_leg_shares and city.lower() == str(cost_split.get("external_city") or "").lower():
+                external_share = int(cost_split["partner_total_chf"])
+            stop_specs.append(
+                {
+                    "starts_at": self._parse_datetime(item.get("starts_at")),
+                    "stop": TourStop(
+                        tour_leg_id=tour_leg.id,
+                        sequence=0,
+                        city=city,
+                        country=item.get("country"),
+                        starts_at=self._parse_datetime(item.get("starts_at")),
+                        format="external_appearance",
+                        fee_chf=0,
+                        travel_share_chf=external_share,
+                        status="known",
+                        metadata_json={
+                            "title": item.get("title"),
+                            "source_name": item.get("source_name"),
+                            "url": item.get("url"),
+                            "cost_responsibility": "external_host" if external_share else "not_modeled",
+                        },
+                    ),
+                }
             )
         if match:
-            stops.append(
-                TourStop(
-                    tour_leg_id=tour_leg.id,
-                    institution_id=kof.id,
-                    open_window_id=match.window.id,
-                    sequence=len(stops) + 1,
-                    city="Zurich",
-                    country="Switzerland",
-                    starts_at=match.window.starts_at,
-                    format="kof_seminar",
-                    fee_chf=fee,
-                    travel_share_chf=travel_share,
-                    status="candidate",
-                    metadata_json={"slot_fit": match.fit_type, "distance_days": match.distance_days},
-                )
+            stop_specs.append(
+                {
+                    "starts_at": match.window.starts_at,
+                    "stop": TourStop(
+                        tour_leg_id=tour_leg.id,
+                        institution_id=kof.id,
+                        open_window_id=match.window.id,
+                        sequence=0,
+                        city="Zurich",
+                        country="Switzerland",
+                        starts_at=match.window.starts_at,
+                        format="kof_seminar",
+                        fee_chf=fee,
+                        travel_share_chf=int(cost_split["kof_total_chf"]),
+                        status="candidate",
+                        metadata_json={
+                            "slot_fit": match.fit_type,
+                            "distance_days": match.distance_days,
+                            "cost_responsibility": "kof",
+                            "hospitality_chf": cost_split["kof_hospitality_chf"],
+                            "travel_chf": cost_split["kof_travel_chf"],
+                            "speaker_fee_source": fee_source,
+                        },
+                    ),
+                }
             )
+        stop_specs.sort(key=lambda item: self._sort_datetime(item["starts_at"]))
+        stops: list[TourStop] = []
+        for index, item in enumerate(stop_specs, start=1):
+            stop = item["stop"]
+            stop.sequence = index
+            stops.append(stop)
         self.session.add_all(stops)
         self.session.flush()
+        TravelPriceChecker(self.session).refresh_tour_leg(tour_leg, force=False)
+        tour_leg.rationale = [
+            {"label": "Scout cluster", "detail": "Built from scraped European appearances."},
+            {
+                "label": "Adjacent-leg split",
+                "detail": self._cost_split_rationale(tour_leg.cost_split_json),
+            },
+        ]
+        self.session.add(tour_leg)
         self.record_event(
             event_type="tour_leg.proposed",
             entity_type="tour_leg",
@@ -287,10 +329,22 @@ class RoadshowService:
                 "researcher_id": cluster.researcher_id,
                 "trip_cluster_id": cluster.id,
                 "stop_count": stop_count,
-                "cost_split": cost_split,
+                "cost_split": tour_leg.cost_split_json,
             },
         )
         return tour_leg
+
+    def _cost_split_rationale(self, cost_split: dict[str, Any]) -> str:
+        if cost_split.get("zurich_stop_position") == "between_external_stops":
+            return (
+                f"Zurich is inserted between {cost_split.get('previous_city') or 'the previous stop'} and "
+                f"{cost_split.get('next_city') or 'the next stop'}; KOF covers Zurich hospitality, while adjacent hosts "
+                f"cover CHF {cost_split.get('partner_total_chf', 0)} modeled inbound/outbound travel."
+            )
+        return (
+            f"KOF covers {cost_split['kof_travel_chf']} CHF travel plus Zurich hospitality; "
+            f"{cost_split['external_host_label']} covers {cost_split['partner_travel_chf']} CHF adjacent travel."
+        )
 
     def ensure_relationship_brief(self, researcher_id: str, institution_id: str) -> RelationshipBrief:
         brief = self.session.scalar(
@@ -407,3 +461,6 @@ class RoadshowService:
             return datetime.fromisoformat(str(value))
         except ValueError:
             return None
+
+    def _sort_datetime(self, value: datetime | None) -> datetime:
+        return value.replace(tzinfo=None) if value else datetime.max

@@ -14,11 +14,16 @@ from pypdf import PdfReader
 
 from app.core.config import settings
 from app.scraping.base import ExtractedHostEvent, ExtractedTalkEvent, RawPage
+from app.scraping.name_quality import contains_cancellation, normalize_speaker_identity, split_speaker_names
 
 
 def _fetch_urls(urls: list[str], client: httpx.Client | None = None) -> list[RawPage]:
     owns_client = client is None
-    http_client = client or httpx.Client(timeout=20.0, follow_redirects=True)
+    http_client = client or httpx.Client(
+        timeout=20.0,
+        follow_redirects=True,
+        headers={"User-Agent": "Roadshow KOF seminar monitor; contact: kof.ethz.ch"},
+    )
     pages: list[RawPage] = []
     try:
         for url in urls:
@@ -68,23 +73,12 @@ def _parse_datetime(value: str, fallback_tz: str = settings.default_timezone, *,
 
 
 def _clean_speaker_name(speaker_name: str, affiliation: str | None) -> str:
-    cleaned = " ".join(speaker_name.split())
-    if affiliation:
-        cleaned = cleaned.replace(affiliation, "").strip(" ,;-")
-    if "," in cleaned:
-        cleaned = cleaned.split(",", 1)[0].strip()
-    return cleaned
+    return normalize_speaker_identity(speaker_name, affiliation).speaker_name
 
 
 def _normalize_speaker(speaker_name: str, affiliation: str | None) -> tuple[str, str | None]:
-    raw_speaker_name = " ".join(speaker_name.split())
-    normalized_affiliation = affiliation
-    if normalized_affiliation is None and "," in raw_speaker_name:
-        raw_speaker_name, normalized_affiliation = [part.strip() for part in raw_speaker_name.split(",", 1)]
-    if normalized_affiliation is None and raw_speaker_name.endswith(")") and " (" in raw_speaker_name:
-        raw_speaker_name, normalized_affiliation = raw_speaker_name.rsplit(" (", 1)
-        normalized_affiliation = normalized_affiliation.rstrip(")")
-    return _clean_speaker_name(raw_speaker_name, normalized_affiliation), normalized_affiliation
+    normalized = normalize_speaker_identity(speaker_name, affiliation)
+    return normalized.speaker_name, normalized.affiliation
 
 
 def _derive_title_and_speaker(title: str, speaker_name: str | None) -> tuple[str, str | None]:
@@ -119,12 +113,30 @@ class SourceConfig:
     date_selectors: list[str]
     link_selectors: list[str]
     text_fallback: str | None = None
+    parser_strategy: str = "generic_html"
+    needs_adapter: bool = False
+
+
+@dataclass(slots=True)
+class SourceRegistryEntry:
+    name: str
+    official_url: str
+    city: str
+    country: str
+    parser_strategy: str
+    source_type: str = "external_opportunity"
+    needs_adapter: bool = False
 
 
 class GenericEventSource:
     def __init__(self, config: SourceConfig) -> None:
         self.config = config
         self.name = config.name
+        self.official_url = config.urls[0]
+        self.city = config.city
+        self.country = config.country
+        self.parser_strategy = config.parser_strategy
+        self.needs_adapter = config.needs_adapter
 
     def fetch_pages(self, client: httpx.Client | None = None) -> list[RawPage]:
         return _fetch_urls(self.config.urls, client=client)
@@ -166,26 +178,44 @@ class GenericEventSource:
                 parsed = httpx.URL(raw_page.url)
                 link = str(parsed.join(link))
             affiliation = _first_match(card, self.config.affiliation_selectors)
-            speaker_name, affiliation = _normalize_speaker(str(speaker_name), affiliation)
+            normalized_speaker = normalize_speaker_identity(str(speaker_name), affiliation)
+            speaker_name = normalized_speaker.speaker_name
+            affiliation = normalized_speaker.affiliation
             title, speaker_name = _derive_title_and_speaker(title, speaker_name)
-            signature = (title, speaker_name, starts_at.isoformat(), link)
-            if signature in seen_event_keys:
-                continue
-            seen_event_keys.add(signature)
-            events.append(
-                ExtractedTalkEvent(
-                    source_name=self.name,
-                    title=title,
-                    speaker_name=speaker_name,
-                    speaker_affiliation=affiliation,
-                    city=self.config.city,
-                    country=self.config.country,
-                    starts_at=starts_at,
-                    ends_at=ends_at,
-                    url=link,
-                    raw_payload={"discovered_from": raw_page.url},
+            normalized_speaker = normalize_speaker_identity(speaker_name, affiliation)
+            speaker_name = normalized_speaker.speaker_name
+            affiliation = normalized_speaker.affiliation
+            speaker_names = split_speaker_names(speaker_name, affiliation) or [speaker_name]
+            for individual_speaker_name in speaker_names:
+                signature = (title, individual_speaker_name, starts_at.isoformat(), link)
+                if signature in seen_event_keys:
+                    continue
+                seen_event_keys.add(signature)
+                raw_payload = {
+                    "discovered_from": raw_page.url,
+                    "speaker_quality_flags": normalized_speaker.flags,
+                }
+                if len(speaker_names) > 1:
+                    raw_payload["speaker_quality_flags"] = list(
+                        dict.fromkeys([*normalized_speaker.flags, "multiple_speakers_split"])
+                    )
+                    raw_payload["original_speaker_name"] = speaker_name
+                if contains_cancellation(str(individual_speaker_name)) or contains_cancellation(title):
+                    raw_payload["event_status"] = "cancelled"
+                events.append(
+                    ExtractedTalkEvent(
+                        source_name=self.name,
+                        title=title,
+                        speaker_name=individual_speaker_name,
+                        speaker_affiliation=affiliation,
+                        city=self.config.city,
+                        country=self.config.country,
+                        starts_at=starts_at,
+                        ends_at=ends_at,
+                        url=link,
+                        raw_payload=raw_payload,
+                    )
                 )
-            )
         if not events and self.config.text_fallback == "dated_speaker_lines":
             events.extend(self._extract_dated_speaker_lines(raw_page, soup, seen_event_keys))
         return events
@@ -203,8 +233,9 @@ class GenericEventSource:
             match = pattern.match(line)
             if not match:
                 continue
-            speaker_name = _clean_speaker_name(match.group("speaker"), None)
-            affiliation = match.group("affiliation").strip()
+            normalized_speaker = normalize_speaker_identity(match.group("speaker"), match.group("affiliation"))
+            speaker_name = normalized_speaker.speaker_name
+            affiliation = normalized_speaker.affiliation
             try:
                 starts_at = _parse_datetime(match.group("date"), dayfirst=True)
             except (TypeError, ValueError):
@@ -214,35 +245,67 @@ class GenericEventSource:
                 possible_title = lines[index + 1].strip().strip('"')
                 if possible_title and "term " not in possible_title.lower():
                     title = possible_title
-            signature = (title, speaker_name, starts_at.isoformat(), raw_page.url)
-            if signature in seen_event_keys:
-                continue
-            seen_event_keys.add(signature)
-            events.append(
-                ExtractedTalkEvent(
-                    source_name=self.name,
-                    title=title,
-                    speaker_name=speaker_name,
-                    speaker_affiliation=affiliation,
-                    city=self.config.city,
-                    country=self.config.country,
-                    starts_at=starts_at,
-                    ends_at=None,
-                    url=raw_page.url,
-                    raw_payload={"discovered_from": raw_page.url, "fallback": self.config.text_fallback},
+            speaker_names = split_speaker_names(speaker_name, affiliation) or [speaker_name]
+            for individual_speaker_name in speaker_names:
+                signature = (title, individual_speaker_name, starts_at.isoformat(), raw_page.url)
+                if signature in seen_event_keys:
+                    continue
+                seen_event_keys.add(signature)
+                raw_payload = {"discovered_from": raw_page.url, "fallback": self.config.text_fallback}
+                if len(speaker_names) > 1:
+                    raw_payload["speaker_quality_flags"] = ["multiple_speakers_split"]
+                    raw_payload["original_speaker_name"] = speaker_name
+                events.append(
+                    ExtractedTalkEvent(
+                        source_name=self.name,
+                        title=title,
+                        speaker_name=individual_speaker_name,
+                        speaker_affiliation=affiliation,
+                        city=self.config.city,
+                        country=self.config.country,
+                        starts_at=starts_at,
+                        ends_at=None,
+                        url=raw_page.url,
+                        raw_payload=raw_payload,
+                    )
                 )
-            )
         return events
+
+
+class RegistryOnlySource:
+    def __init__(self, entry: SourceRegistryEntry) -> None:
+        self.entry = entry
+        self.name = entry.name
+        self.official_url = entry.official_url
+        self.city = entry.city
+        self.country = entry.country
+        self.parser_strategy = entry.parser_strategy
+        self.needs_adapter = True
+
+    def fetch_pages(self, client: httpx.Client | None = None) -> list[RawPage]:
+        return _fetch_urls([self.official_url], client=client)
+
+    def extract(self, raw_page: RawPage) -> list[ExtractedTalkEvent]:
+        return []
 
 
 class BisPdfConferenceSource:
     name = "bis"
     urls = ["https://www.bis.org/events/260526_cfp_heterogeneity_inflation.pdf"]
     title = "Heterogeneity & Inflation: From Microeconomic Variation to Macroeconomic Impact"
+    official_url = urls[0]
+    city = "Basel"
+    country = "Switzerland"
+    parser_strategy = "pdf_keynote_extractor"
+    needs_adapter = False
 
     def fetch_pages(self, client: httpx.Client | None = None) -> list[RawPage]:
         owns_client = client is None
-        http_client = client or httpx.Client(timeout=20.0, follow_redirects=True)
+        http_client = client or httpx.Client(
+            timeout=20.0,
+            follow_redirects=True,
+            headers={"User-Agent": "Roadshow KOF seminar monitor; contact: kof.ethz.ch"},
+        )
         pages: list[RawPage] = []
         try:
             for url in self.urls:
@@ -319,7 +382,11 @@ class KofHostCalendarAdapter:
 
         api_url = self.discover_api_url(index_page)
         if api_url:
-            http_client = client or httpx.Client(timeout=20.0, follow_redirects=True)
+            http_client = client or httpx.Client(
+                timeout=20.0,
+                follow_redirects=True,
+                headers={"User-Agent": "Roadshow KOF seminar monitor; contact: kof.ethz.ch"},
+            )
             owns_client = client is None
             try:
                 response = http_client.get(api_url)
@@ -526,6 +593,8 @@ ECB_SOURCE = SourceConfig(
     affiliation_selectors=[".affiliation", ".speaker-affiliation", ".institution"],
     date_selectors=["time", ".date", ".event-date", "[data-date]"],
     link_selectors=["a[href]"],
+    parser_strategy="needs_source_specific_adapter",
+    needs_adapter=True,
 )
 
 BIS_SOURCE = SourceConfig(
@@ -542,12 +611,170 @@ BIS_SOURCE = SourceConfig(
 )
 
 
+EXPANDED_WATCHLIST: list[SourceRegistryEntry] = [
+    SourceRegistryEntry(
+        name="lse",
+        official_url="https://www.lse.ac.uk/economics/events-and-seminars",
+        city="London",
+        country="United Kingdom",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="pse",
+        official_url="https://www.parisschoolofeconomics.eu/en/research/seminars/",
+        city="Paris",
+        country="France",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="oxford",
+        official_url="https://www.economics.ox.ac.uk/events",
+        city="Oxford",
+        country="United Kingdom",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="tse",
+        official_url="https://www.tse-fr.eu/events/seminars",
+        city="Toulouse",
+        country="France",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="lmu_munich",
+        official_url="https://www.econ.lmu.de/en/research/research-seminars/",
+        city="Munich",
+        country="Germany",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="goethe_frankfurt",
+        official_url="https://www.old.wiwi.uni-frankfurt.de/abteilungen/money-and-macroeconomics/macro-seminar.html",
+        city="Frankfurt",
+        country="Germany",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="uzh",
+        official_url="https://www.econ.uzh.ch/en/eventsandseminars.html",
+        city="Zurich",
+        country="Switzerland",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="eth",
+        official_url="https://fsep.ethz.ch/research/seminars.html",
+        city="Zurich",
+        country="Switzerland",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="snb",
+        official_url="https://www.snb.ch/en/services-events/events/scientific-conferences/research_conference_overview",
+        city="Zurich",
+        country="Switzerland",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="bank_of_england",
+        official_url="https://www.bankofengland.co.uk/research",
+        city="London",
+        country="United Kingdom",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="bse_barcelona",
+        official_url="https://www.ub.edu/school-economics/activities/",
+        city="Barcelona",
+        country="Spain",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="carlos_iii_madrid",
+        official_url="https://www.uc3m.es/research-groups/time-series",
+        city="Madrid",
+        country="Spain",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+    SourceRegistryEntry(
+        name="eui",
+        official_url="https://www.eui.eu/en/academic-units/department-of-economics/seminars-and-events",
+        city="Florence",
+        country="Italy",
+        parser_strategy="needs_source_specific_adapter",
+        needs_adapter=True,
+    ),
+]
+
+
+def source_registry() -> list[SourceRegistryEntry]:
+    configured = [
+        SourceRegistryEntry(
+            name=source.name,
+            official_url=source.urls[0],
+            city=source.city,
+            country=source.country,
+            parser_strategy=source.parser_strategy,
+            needs_adapter=source.needs_adapter,
+        )
+        for source in [BOCCONI_SOURCE, MANNHEIM_SOURCE, BONN_SOURCE, ECB_SOURCE]
+    ]
+    configured.append(
+        SourceRegistryEntry(
+            name="bis",
+            official_url=BisPdfConferenceSource.urls[0],
+            city="Basel",
+            country="Switzerland",
+            parser_strategy="pdf_keynote_extractor",
+            needs_adapter=False,
+        )
+    )
+    return configured + EXPANDED_WATCHLIST
+
+
+def source_registry_by_name() -> dict[str, SourceRegistryEntry]:
+    registry = {entry.name: entry for entry in source_registry()}
+    registry["kof_host_calendar"] = SourceRegistryEntry(
+        name="kof_host_calendar",
+        official_url=KofHostCalendarAdapter.index_url,
+        city="Zurich",
+        country="Switzerland",
+        parser_strategy="eth_calendar_json_feed",
+        source_type="host_calendar",
+        needs_adapter=False,
+    )
+    return registry
+
+
 def iter_source_adapters() -> list[GenericEventSource]:
+    implemented = [
+        GenericEventSource(BOCCONI_SOURCE),
+        GenericEventSource(MANNHEIM_SOURCE),
+        GenericEventSource(BONN_SOURCE),
+        RegistryOnlySource(source_registry_by_name()["ecb"]),
+        BisPdfConferenceSource(),
+    ]
+    expanded = [RegistryOnlySource(entry) for entry in EXPANDED_WATCHLIST]
+    return implemented + expanded
+
+
+def iter_implemented_source_adapters() -> list[GenericEventSource]:
     return [
         GenericEventSource(BOCCONI_SOURCE),
         GenericEventSource(MANNHEIM_SOURCE),
         GenericEventSource(BONN_SOURCE),
-        GenericEventSource(ECB_SOURCE),
         BisPdfConferenceSource(),
     ]
 
@@ -561,6 +788,11 @@ __all__ = [
     "BisPdfConferenceSource",
     "GenericEventSource",
     "KofHostCalendarAdapter",
+    "RegistryOnlySource",
+    "SourceRegistryEntry",
     "get_host_calendar_adapter",
+    "iter_implemented_source_adapters",
     "iter_source_adapters",
+    "source_registry",
+    "source_registry_by_name",
 ]
