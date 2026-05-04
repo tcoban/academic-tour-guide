@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.3.3 - 2026-05-04
+
+### Added
+
+- Hardened `deploy_frontend.sh` helper for Google Cloud Shell frontend deployment.
+- Deployment checks for active gcloud auth, required APIs, Artifact Registry repository, backend service URL, and existing `roadshow-api-access-token` Secret Manager secret.
+- Secret-level IAM binding so the Cloud Run runtime service account can read the backend API token.
+- README guidance for the recommended frontend Cloud Run deployment path and manual fallback commands.
+
+### Changed
+
+- Backend and frontend package versions are aligned at `0.3.3`.
+- Frontend deployment now prefers reusing the existing API-token secret rather than creating or rotating it during every deploy.
+
+### Security
+
+- The deployment helper does not hardcode, print, create, or overwrite the backend API token.
+
 ## v0.3.2 - 2026-05-04
 
 ### Added

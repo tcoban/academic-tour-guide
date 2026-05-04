@@ -86,6 +86,14 @@ The backend build template deploys a migration job first and then deploys the se
 Frontend deploy path:
 
 ```bash
+bash deploy_frontend.sh
+```
+
+The helper script is the recommended pilot path. It uses the existing Secret Manager secret `roadshow-api-access-token`, verifies that `roadshow-backend` exists, builds and deploys `roadshow-frontend`, updates backend CORS to the deployed frontend URL, and prints smoke-test URLs. It never stores or updates the API token.
+
+Manual equivalent:
+
+```bash
 BACKEND_URL=$(gcloud run services describe roadshow-backend --region europe-west6 --format="value(status.url)")
 gcloud builds submit --config cloudbuild.frontend.yaml --substitutions _BACKEND_API_BASE_URL=$BACKEND_URL/api
 FRONTEND_URL=$(gcloud run services describe roadshow-frontend --region europe-west6 --format="value(status.url)")
