@@ -2,17 +2,20 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-COPY package.json /app/package.json
-COPY tsconfig.json /app/tsconfig.json
-COPY next.config.ts /app/next.config.ts
-COPY next-env.d.ts /app/next-env.d.ts
-COPY app /app/app
-COPY components /app/components
-COPY lib /app/lib
+COPY package.json package-lock.json ./
+RUN npm ci
 
-RUN npm install
+COPY tsconfig.json next.config.ts next-env.d.ts ./
+COPY app ./app
+COPY components ./components
+COPY lib ./lib
 
-EXPOSE 3000
+ARG NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
+ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+ENV NODE_ENV=production
+RUN npm run build
 
-CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0"]
+ENV PORT=8080
+EXPOSE 8080
 
+CMD ["sh", "-c", "npm run start -- --hostname 0.0.0.0 --port ${PORT}"]

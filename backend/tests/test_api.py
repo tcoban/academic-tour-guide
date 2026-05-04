@@ -774,8 +774,13 @@ def test_api_access_token_protects_api_when_configured(client, monkeypatch) -> N
     assert allowed_response.status_code == 200
 
 
-def test_production_mode_uses_session_auth_without_legacy_edge_secrets(monkeypatch) -> None:
+def test_production_mode_allows_session_auth_with_cloud_iap_gate(monkeypatch) -> None:
     monkeypatch.setenv("ROADSHOW_ENV", "production")
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://roadshow:secret@127.0.0.1:5432/roadshow")
+    monkeypatch.setenv("ROADSHOW_CORS_ORIGINS", "https://roadshow-frontend.example")
+    monkeypatch.setenv("ROADSHOW_CLOUD_IAP_ENABLED", "true")
+    monkeypatch.setenv("ROADSHOW_SESSION_COOKIE_SECURE", "true")
+    monkeypatch.setenv("ROADSHOW_ENABLE_DEMO_TOOLS", "false")
     monkeypatch.delenv("ROADSHOW_APP_PASSWORD", raising=False)
     monkeypatch.delenv("ATG_APP_PASSWORD", raising=False)
     monkeypatch.delenv("ROADSHOW_API_ACCESS_TOKEN", raising=False)

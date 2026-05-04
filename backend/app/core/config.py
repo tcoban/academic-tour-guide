@@ -10,7 +10,7 @@ class Settings:
     app_name: str = "Roadshow"
     api_prefix: str = "/api"
     default_timezone: str = "Europe/Zurich"
-    cors_origins: tuple[str, ...] = ("http://localhost:3000", "http://127.0.0.1:3000")
+    default_cors_origins: tuple[str, ...] = ("http://localhost:3000", "http://127.0.0.1:3000")
     cluster_gap_days: int = 14
     slot_match_buffer_days: int = 7
     opportunity_horizon_days: int = 120
@@ -25,6 +25,13 @@ class Settings:
         return self.roadshow_env == "production"
 
     @property
+    def cors_origins(self) -> tuple[str, ...]:
+        configured = os.getenv("ROADSHOW_CORS_ORIGINS")
+        if not configured:
+            return self.default_cors_origins
+        return tuple(origin.strip() for origin in configured.split(",") if origin.strip())
+
+    @property
     def demo_tools_enabled(self) -> bool:
         return os.getenv("ROADSHOW_ENABLE_DEMO_TOOLS", "").lower() in {"1", "true", "yes", "on"}
 
@@ -33,6 +40,29 @@ class Settings:
         if value is None:
             return default
         return value.lower() in {"1", "true", "yes", "on"}
+
+    @property
+    def cloud_iap_enabled(self) -> bool:
+        return self._flag("ROADSHOW_CLOUD_IAP_ENABLED")
+
+    @property
+    def session_cookie_secure(self) -> bool:
+        configured = os.getenv("ROADSHOW_SESSION_COOKIE_SECURE")
+        if configured is not None:
+            return configured.lower() in {"1", "true", "yes", "on"}
+        return self.is_production
+
+    @property
+    def public_api_paths(self) -> tuple[str, ...]:
+        return (
+            f"{self.api_prefix}/health",
+            f"{self.api_prefix}/auth/register",
+            f"{self.api_prefix}/auth/login",
+            f"{self.api_prefix}/auth/logout",
+        )
+
+    def is_public_api_path(self, path: str) -> bool:
+        return path in self.public_api_paths
 
     @property
     def ai_enabled(self) -> bool:
@@ -110,7 +140,23 @@ class Settings:
     def production_validation_errors(self) -> list[str]:
         if not self.is_production:
             return []
-        return []
+        errors: list[str] = []
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            errors.append("DATABASE_URL is required when ROADSHOW_ENV=production.")
+        elif database_url.startswith("sqlite"):
+            errors.append("DATABASE_URL must point to PostgreSQL/Cloud SQL in production, not SQLite.")
+        if not os.getenv("ROADSHOW_CORS_ORIGINS"):
+            errors.append("ROADSHOW_CORS_ORIGINS must be set to the frontend origin in production.")
+        if not self.access_token and not self.cloud_iap_enabled:
+            errors.append(
+                "ROADSHOW_API_ACCESS_TOKEN or ROADSHOW_CLOUD_IAP_ENABLED=true is required in production."
+            )
+        if self.demo_tools_enabled:
+            errors.append("ROADSHOW_ENABLE_DEMO_TOOLS must be false in production.")
+        if not self.session_cookie_secure:
+            errors.append("ROADSHOW_SESSION_COOKIE_SECURE must not be disabled in production.")
+        return errors
 
     def ensure_production_ready(self) -> None:
         errors = self.production_validation_errors()

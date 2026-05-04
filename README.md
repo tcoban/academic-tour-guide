@@ -49,15 +49,38 @@ Roadshow is a multi-tenant, self-service SaaS platform for academic seminar team
 ## Production Readiness
 
 - Set `ROADSHOW_ENV=production` for protected deployments.
+- Production backend startup validates required settings before serving traffic: `DATABASE_URL`, `ROADSHOW_CORS_ORIGINS`, secure session cookies, disabled demo tooling, and either `ROADSHOW_API_ACCESS_TOKEN` or `ROADSHOW_CLOUD_IAP_ENABLED=true`.
 - The frontend redirects unauthenticated production users to `/login` and uses the `roadshow_session` HTTP-only cookie after login.
-- The backend exposes email/password session endpoints and tenant context. Configure `ROADSHOW_API_ACCESS_TOKEN` only when an additional edge/API token gate is desired; clients then send it as `x-roadshow-api-key`.
+- The backend exposes email/password session endpoints and tenant context. Configure `ROADSHOW_API_ACCESS_TOKEN` as the minimum direct-API gate unless the service is protected by IAP or equivalent infrastructure.
 - The backend Dockerfile is Cloud-Run-ready and binds Uvicorn to the dynamic `PORT` environment variable, defaulting to `8080`.
+- The frontend Dockerfile is production-oriented for a separate `roadshow-frontend` Cloud Run service: it runs `npm ci`, `npm run build`, then `next start` on the dynamic `PORT`.
+- Roadshow production schema changes should be applied through Alembic before service startup, for example with `python -m alembic upgrade head` in a Cloud Run Job or Cloud Build step. The FastAPI app does not create or patch schemas at production startup.
 - Vertex AI/Gemini integration uses `google-cloud-aiplatform` with Application Default Credentials for project `kof-gcloud` in `europe-west6`; do not add Gemini API keys to code or environment files.
 - AI assistance is disabled unless `ROADSHOW_AI_ENABLED=true`. Phase flags are `ROADSHOW_AI_EVIDENCE_ENABLED`, `ROADSHOW_AI_FIT_ENABLED`, `ROADSHOW_AI_DRAFT_ENABLED`, and `ROADSHOW_AI_AUTOPILOT_ENABLED`; provider calls use `ROADSHOW_AI_TIMEOUT_SECONDS`.
 - Keep `ROADSHOW_ENABLE_DEMO_TOOLS=false` in production. The seed endpoint is unavailable unless this flag is explicitly enabled.
 - Rail planning defaults to `ROADSHOW_RAIL_CLASS=first` and `ROADSHOW_RAIL_FARE_POLICY=full_fare`; configure `OPENTRANSPORTDATA_API_TOKEN` or Rail Europe ERA credentials for authorized live fare providers.
 - The older `ATG_*` names remain supported only for transition environments.
 - GitHub Actions CI runs backend tests and the frontend production build on pushes and pull requests.
+- GitHub Actions CI also builds backend and frontend Docker images so container packaging regressions are caught before Cloud Run deployment.
+
+### Google Cloud Run
+
+The backend is intended to deploy first as `roadshow-backend`; the frontend follows as `roadshow-frontend`.
+
+Backend deploy path:
+
+```bash
+gcloud builds submit --config cloudbuild.backend.yaml
+```
+
+Before running the build, create or choose:
+
+- Artifact Registry repository `roadshow` in `europe-west6`.
+- Cloud SQL/Postgres connection string stored as Secret Manager secret `roadshow-database-url`.
+- Backend API gate token stored as Secret Manager secret `roadshow-api-access-token`, unless IAP or equivalent protection is used and `ROADSHOW_CLOUD_IAP_ENABLED=true`.
+- Frontend origin substitution `_FRONTEND_ORIGIN`, replacing the placeholder in `cloudbuild.backend.yaml`.
+
+The backend build template deploys a migration job first and then deploys the service. It uses Vertex AI through the Cloud Run service account / ADC, so the service account needs the appropriate Vertex AI permissions.
 
 ## Worker Commands
 

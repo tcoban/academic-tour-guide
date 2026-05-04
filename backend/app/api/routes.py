@@ -155,7 +155,7 @@ def _auth_response(response: Response, auth_session) -> AuthResponse:
         value=auth_session.token,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=settings.session_cookie_secure,
         expires=auth_session.expires_at,
     )
     return AuthResponse(

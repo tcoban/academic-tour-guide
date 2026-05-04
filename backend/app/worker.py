@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 
+from app.core.config import settings
 from app.db.session import SessionLocal, init_db
 from app.services.audit import SourceAuditor
 from app.services.availability import AvailabilityBuilder
@@ -15,7 +16,8 @@ from app.services.seed import seed_demo_data, seed_reference_data
 
 def run(command: str) -> None:
     if command == "audit-sources":
-        init_db()
+        if not settings.is_production:
+            init_db()
         with SessionLocal() as session:
             for record in SourceAuditor().record(session):
                 print(f"{record.source_name}: {record.status} pages={record.page_count} events={record.event_count}")
@@ -26,9 +28,11 @@ def run(command: str) -> None:
             session.commit()
         return
 
-    init_db()
+    if not settings.is_production:
+        init_db()
     with SessionLocal() as session:
-        seed_reference_data(session)
+        if not settings.is_production:
+            seed_reference_data(session)
         if command == "ingest":
             IngestionService(session).ingest_sources()
         elif command == "real-sync":

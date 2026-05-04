@@ -15,10 +15,11 @@ from app.services.seed import seed_reference_data
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings.ensure_production_ready()
-    init_db()
-    with SessionLocal() as session:
-        seed_reference_data(session)
-        session.commit()
+    if not settings.is_production:
+        init_db()
+        with SessionLocal() as session:
+            seed_reference_data(session)
+            session.commit()
     yield
 
 
@@ -35,16 +36,17 @@ app.add_middleware(
 @app.middleware("http")
 async def require_api_access_token(request: Request, call_next):
     access_token = settings.access_token
-    public_paths = {
-        f"{settings.api_prefix}/health",
-        f"{settings.api_prefix}/auth/register",
-        f"{settings.api_prefix}/auth/login",
-        f"{settings.api_prefix}/auth/logout",
-    }
-    if access_token and request.url.path.startswith(settings.api_prefix) and request.url.path not in public_paths:
+    is_protected_api = request.url.path.startswith(settings.api_prefix) and not settings.is_public_api_path(
+        request.url.path
+    )
+    if access_token and is_protected_api:
         provided = request.headers.get("x-roadshow-api-key") or request.headers.get("x-atg-api-key")
         if provided != access_token:
             return JSONResponse({"detail": "Roadshow API access token required."}, status_code=401)
+    if settings.is_production and not access_token and is_protected_api:
+        has_session = bool(request.headers.get("x-roadshow-session") or request.cookies.get("roadshow_session"))
+        if not has_session:
+            return JSONResponse({"detail": "Roadshow login required."}, status_code=401)
     return await call_next(request)
 
 

@@ -5,6 +5,7 @@ from collections.abc import Generator
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.session import get_session
 from app.models.entities import Tenant, User, UserSession
 from app.services.tenancy import SESSION_COOKIE_NAME, ensure_default_tenant, get_session_tenant, resolve_auth_session
@@ -25,6 +26,11 @@ def session_dep(request: Request) -> Generator[Session, None, None]:
             if matching:
                 session.info["tenant_id"] = tenant_header
         if not auth_session:
+            is_protected_api = request.url.path.startswith(settings.api_prefix) and not settings.is_public_api_path(
+                request.url.path
+            )
+            if settings.is_production and is_protected_api:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Roadshow login required.")
             tenant = ensure_default_tenant(session)
             session.info.setdefault("tenant_id", tenant.id)
         yield session

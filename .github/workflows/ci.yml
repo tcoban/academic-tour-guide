@@ -44,3 +44,12 @@ jobs:
           sleep 5
           cd frontend
           npm run build
+
+  docker-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build -t roadshow-backend:ci backend
+      - name: Build frontend image
+        run: docker build -t roadshow-frontend:ci frontend

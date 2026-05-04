@@ -1,5 +1,30 @@
 # Release Notes
 
+## v0.3.1 - 2026-05-04
+
+### Added
+
+- Cloud Build backend deployment template for `roadshow-backend`, including Docker image build/push, a Cloud Run migration job, and Cloud Run service deployment.
+- Production Dockerfile for `roadshow-frontend`, using `npm ci`, `npm run build`, and `next start` on the dynamic Cloud Run `PORT`.
+- Docker ignore files so local databases, build output, caches, and Node modules stay out of image contexts.
+- CI Docker build checks for both backend and frontend images.
+
+### Changed
+
+- Backend and frontend package versions are aligned at `0.3.1`.
+- Docker Compose now maps the backend container's Cloud Run-style port `8080` to local `8000`, and serves the frontend production container on local `3000`.
+- Backend production startup now expects Alembic-managed schema rather than calling `create_all()` on every app boot.
+
+### Security
+
+- `ROADSHOW_ENV=production` now validates that PostgreSQL/Cloud SQL `DATABASE_URL`, `ROADSHOW_CORS_ORIGINS`, secure session cookies, disabled demo tools, and either `ROADSHOW_API_ACCESS_TOKEN` or `ROADSHOW_CLOUD_IAP_ENABLED=true` are configured.
+- Production session cookies are `Secure` by default, while development remains usable over local HTTP.
+- Anonymous default-tenant fallback is blocked for protected production API calls.
+
+### Operations
+
+- GitHub repository health remains green on `main`; the remaining cloud-readiness work is now frontend deployment wiring, Cloud SQL secret creation, and GitHub branch-protection/release-object administration.
+
 ## v0.3.0 - 2026-05-04
 
 ### Added

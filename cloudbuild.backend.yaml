@@ -1,0 +1,61 @@
+substitutions:
+  _REGION: europe-west6
+  _SERVICE: roadshow-backend
+  _ARTIFACT_REPOSITORY: roadshow
+  _DATABASE_URL_SECRET: roadshow-database-url
+  _API_TOKEN_SECRET: roadshow-api-access-token
+  _FRONTEND_ORIGIN: https://roadshow-frontend.example.com
+  _ROADSHOW_AI_ENABLED: "false"
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - backend
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - roadshow-backend-migrate
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --set-env-vars=ROADSHOW_ENV=production,ROADSHOW_CORS_ORIGINS=${_FRONTEND_ORIGIN},ROADSHOW_AI_ENABLED=${_ROADSHOW_AI_ENABLED}
+      - --set-secrets=DATABASE_URL=${_DATABASE_URL_SECRET}:latest,ROADSHOW_API_ACCESS_TOKEN=${_API_TOKEN_SECRET}:latest
+      - --command=python
+      - --args=-m,alembic,upgrade,head
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - execute
+      - roadshow-backend-migrate
+      - --region=${_REGION}
+      - --wait
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --allow-unauthenticated
+      - --set-env-vars=ROADSHOW_ENV=production,ROADSHOW_CORS_ORIGINS=${_FRONTEND_ORIGIN},ROADSHOW_AI_ENABLED=${_ROADSHOW_AI_ENABLED},ROADSHOW_VERTEX_MODEL=gemini-1.5-flash
+      - --set-secrets=DATABASE_URL=${_DATABASE_URL_SECRET}:latest,ROADSHOW_API_ACCESS_TOKEN=${_API_TOKEN_SECRET}:latest
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_ARTIFACT_REPOSITORY}/${_SERVICE}:$SHORT_SHA
