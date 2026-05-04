@@ -49,3 +49,11 @@ async def require_api_access_token(request: Request, call_next):
 
 
 app.include_router(router, prefix=settings.api_prefix)
+
+
+if __name__ == "__main__":
+    import os
+
+    import uvicorn
+
+    uvicorn.run("app.main:app", host="0.0.0.0", port=int(os.environ.get("PORT", "8080")))

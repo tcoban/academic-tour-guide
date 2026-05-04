@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.2.1 - 2026-05-04
+
+### Added
+
+- Central Vertex AI/Gemini adapter using `google-cloud-aiplatform`, `vertexai.init(project="kof-gcloud", location="europe-west6")`, and `GenerativeModel`.
+- Static safety tests that keep Gemini API-key usage out of backend application code.
+
+### Changed
+
+- Backend Dockerfile now targets Cloud Run by binding Uvicorn to the dynamic `PORT` environment variable, defaulting to `8080`.
+- Backend dependencies now include `google-cloud-aiplatform`; `uvicorn` remains explicit.
+- Backend and frontend package versions are aligned at `0.2.1`.
+
+### Security
+
+- Vertex AI is prepared for Application Default Credentials through the Cloud Run service account. No Gemini API keys are used or introduced.
+
 ## v0.2.0 - 2026-05-04
 
 ### Added

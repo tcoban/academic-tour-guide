@@ -49,6 +49,8 @@ Roadshow is a multi-tenant, self-service SaaS platform for academic seminar team
 - Set `ROADSHOW_ENV=production` for protected deployments.
 - The frontend redirects unauthenticated production users to `/login` and uses the `roadshow_session` HTTP-only cookie after login.
 - The backend exposes email/password session endpoints and tenant context. Configure `ROADSHOW_API_ACCESS_TOKEN` only when an additional edge/API token gate is desired; clients then send it as `x-roadshow-api-key`.
+- The backend Dockerfile is Cloud-Run-ready and binds Uvicorn to the dynamic `PORT` environment variable, defaulting to `8080`.
+- Vertex AI/Gemini integration is prepared through `google-cloud-aiplatform` with Application Default Credentials for project `kof-gcloud` in `europe-west6`; do not add Gemini API keys to code or environment files.
 - Keep `ROADSHOW_ENABLE_DEMO_TOOLS=false` in production. The seed endpoint is unavailable unless this flag is explicitly enabled.
 - Rail planning defaults to `ROADSHOW_RAIL_CLASS=first` and `ROADSHOW_RAIL_FARE_POLICY=full_fare`; configure `OPENTRANSPORTDATA_API_TOKEN` or Rail Europe ERA credentials for authorized live fare providers.
 - The older `ATG_*` names remain supported only for transition environments.
